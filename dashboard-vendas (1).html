@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard de Vendas</title>
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="./google-config.js"></script>
+<script src="./app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <section class="screen auth-screen" id="authScreen">
+    <div class="auth-card">
+      <div class="logo"><div class="logo-dot"></div>Dashboard de Vendas</div>
+      <div class="auth-copy">
+        <div class="card-title" id="authTitle">Entrar</div>
+        <div class="card-sub" id="authSubtitle">Acesse seu dashboard local nesta maquina.</div>
+      </div>
+      <div class="auth-switch" id="authModeSwitch">
+        <button class="auth-switch-btn active" id="authModeLoginButton" type="button">Fazer login</button>
+        <button class="auth-switch-btn" id="authModeCreateButton" type="button">Criar acesso</button>
+      </div>
+      <div class="auth-form">
+        <div class="auth-local-fields" id="authLocalFields">
+          <div class="fg">
+          <label class="flabel" for="authUsername">Usuario</label>
+          <input class="finput" id="authUsername" type="text" autocomplete="username" placeholder="Seu usuario">
+          </div>
+          <div class="fg">
+          <label class="flabel" for="authPassword">Senha</label>
+          <input class="finput" id="authPassword" type="password" autocomplete="current-password" placeholder="Sua senha">
+          </div>
+        </div>
+        <div class="actions-row">
+          <button class="btn btn-primary" id="authSubmitButton" type="button">Entrar</button>
+        </div>
+        <div class="auth-alt">
+          <div class="auth-divider" id="authGoogleDivider"><span>ou</span></div>
+          <div class="auth-google-slot" id="googleSignInSlot" aria-live="polite"></div>
+          <div class="auth-tip" id="googleAuthHint">Ao entrar com Google, o app tenta carregar automaticamente o arquivo sincronizado no Google Drive.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen setup-screen" id="setupScreen" hidden>
+    <div class="setup-shell">
+      <div class="auth-card setup-card">
+        <div class="logo"><div class="logo-dot"></div>Configurar Plataformas</div>
+        <div class="auth-copy">
+          <div class="card-title">Cadastre suas plataformas</div>
+          <div class="card-sub">O dashboard sera gerado com base nas plataformas que voce usar.</div>
+        </div>
+        <div class="platform-builder">
+          <div class="setup-grid">
+            <div class="fg">
+              <label class="flabel" for="platformName">Nome</label>
+              <input class="finput" id="platformName" type="text" placeholder="Ex.: Mercado Livre">
+            </div>
+            <div class="fg">
+              <label class="flabel" for="platformShort">Sigla</label>
+              <input class="finput" id="platformShort" type="text" maxlength="3" placeholder="ML">
+            </div>
+            <div class="fg">
+              <label class="flabel" for="platformColor">Cor</label>
+              <input class="finput color-input" id="platformColor" type="color" value="#2563eb">
+            </div>
+          </div>
+          <div class="actions-row">
+            <button class="btn btn-primary" id="addPlatformConfigButton" type="button">Adicionar Plataforma</button>
+            <button class="btn btn-secondary" id="cancelPlatformEditButton" type="button" hidden>Cancelar Edicao</button>
+          </div>
+          <div class="setup-list" id="platformConfigList"></div>
+          <div class="actions-row">
+            <button class="btn btn-secondary" id="importBackupSetupButton" type="button">Importar Backup</button>
+            <button class="btn btn-primary" id="finishSetupButton" type="button">Finalizar Configuracao</button>
+            <button class="btn btn-secondary" id="logoutFromSetupButton" type="button">Sair</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen hub-screen" id="hubScreen" hidden>
+    <div class="hub-shell">
+      <div class="hub-copy">
+        <div class="logo"><div class="logo-dot"></div>Central de Operacao</div>
+        <div class="card-title" id="hubGreeting">Bem-vindo</div>
+        <div class="card-sub">Escolha o que voce quer abrir agora. O menu aparece logo depois do login quando sua base ja esta configurada.</div>
+        <div class="auth-status" id="hubPlatformCount">0 plataformas cadastradas</div>
+      </div>
+      <div class="hub-grid">
+        <button class="hub-card" id="openDashboardCard" type="button">
+          <span class="hub-card-kicker">Acompanhar resultados</span>
+          <strong>Dashboard</strong>
+          <span>Veja vendas, semanas, comparativos e relatorios do periodo.</span>
+        </button>
+        <button class="hub-card" id="openCalculatorCard" type="button">
+          <span class="hub-card-kicker">Definir preco ideal</span>
+          <strong>Calculadora</strong>
+          <span>Simule comissao, frete, margem e lucro por plataforma.</span>
+        </button>
+      </div>
+      <div class="actions-row hub-actions">
+        <button class="btn btn-secondary" id="hubManagePlatformsButton" type="button">Plataformas</button>
+        <button class="btn btn-secondary" id="hubImportBackupButton" type="button">Importar Backup</button>
+        <button class="btn btn-secondary" id="hubLogoutButton" type="button">Sair</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen dashboard-screen" id="dashboardScreen" hidden>
+    <header>
+      <div class="header-left">
+        <div class="menu-wrap">
+              <button class="menu-toggle" id="menuToggleButton" type="button" aria-expanded="false" aria-controls="headerMenu">☰</button>
+              <div class="menu-dropdown" id="headerMenu" hidden>
+                <div class="menu-actions">
+                  <button class="btn btn-secondary menu-action" id="openHubButton" type="button" data-icon="⌂">Menu Inicial</button>
+                  <button class="btn btn-secondary menu-action" id="openCalculatorButton" type="button" data-icon="∑">Calculadora</button>
+                  <button class="btn btn-secondary menu-action" id="managePlatformsButton" type="button" data-icon="▦">Plataformas</button>
+                  <button class="btn btn-secondary menu-action" id="changePasswordButton" type="button" data-icon="🔐">Trocar Senha</button>
+                  <button class="btn btn-secondary menu-action" id="saveNowButton" type="button" data-icon="💾">Salvar Agora</button>
+                  <button class="btn btn-secondary menu-action" id="syncGoogleDriveButton" type="button" data-icon="☁">Sincronizar Google Drive</button>
+                  <button class="btn btn-secondary menu-action" id="restoreGoogleDriveButton" type="button" data-icon="⇩">Restaurar do Google Drive</button>
+                  <button class="btn btn-secondary menu-action" id="exportBackupButton" type="button" data-icon="⤴">Exportar Backup</button>
+                  <button class="btn btn-secondary menu-action" id="importBackupButton" type="button" data-icon="⤵">Importar Backup</button>
+                  <button class="btn btn-secondary menu-action" id="logoutButton" type="button" data-icon="↩">Sair</button>
+                </div>
+              </div>
+        </div>
+        <button class="btn btn-secondary theme-icon-btn" id="themeToggleButton" type="button" aria-label="Alternar tema">☀</button>
+        <div class="header-meta">
+          <div class="user-badge" id="currentUserBadge">Usuario: -</div>
+          <div class="auth-status" id="authStatus">Dados salvos nesta maquina</div>
+          <div class="auth-status" id="googleDriveStatus">Google Drive desconectado</div>
+        </div>
+      </div>
+      <div class="logo header-brand"><div class="logo-dot"></div><span id="brandTitle">Dashboard de Vendas</span></div>
+      <div class="header-right">
+        <div class="month-tabs" id="monthTabs"></div>
+        <button class="btn btn-add" id="addMonthButton" type="button">+ Mes</button>
+        <button class="btn btn-report" id="reportButton" type="button">Relatorio</button>
+      </div>
+    </header>
+
+    <main id="dashboardMain">
+      <div class="kpi-row" id="kpiRow"></div>
+      <div class="grid2">
+        <div class="card daily-card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Vendas Diarias por Plataforma</div>
+              <div class="card-sub">Grafico consolidado do mes. Use os detalhes para editar dia a dia.</div>
+            </div>
+            <button class="btn btn-secondary" id="openDailyDetailsButton" type="button">Ver detalhes</button>
+          </div>
+          <div class="chart-box daily-chart-box"><canvas id="dailyChart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Mix de Plataformas</div>
+              <div class="card-sub">% do faturamento liquido</div>
+            </div>
+          </div>
+          <div class="donut-box"><canvas id="donutChart"></canvas></div>
+          <div class="dlegend" id="donutLegend"></div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Resumo por Plataforma</div>
+              <div class="card-sub">Vendas, devolucoes e liquido</div>
+            </div>
+          </div>
+          <table class="ptable platform-summary-table" id="platformTable"></table>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Comparativo Mes a Mes</div>
+              <div class="card-sub">vs. mes anterior</div>
+            </div>
+          </div>
+          <div id="monthCompare"></div>
+        </div>
+      </div>
+      <div class="grid2b">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Vendas por Semana</div>
+              <div class="card-sub">% do total mensal e variacao vs. mes anterior</div>
+            </div>
+          </div>
+          <div class="wgrid" id="weekBars"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Melhores Dias</div>
+              <div class="card-sub">Maior venda registrada</div>
+            </div>
+          </div>
+          <div class="bdgrid" id="bestDayGrid"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sec-label">Lancamento de Dados</div>
+        <div class="itabs">
+          <button class="itab active" data-tab="sales" type="button">+ Vendas Diarias</button>
+          <button class="itab" data-tab="returns" type="button">Devolucoes</button>
+        </div>
+        <div class="ipanel active" id="panel-sales">
+          <div class="irow">
+            <div class="fg">
+              <label class="flabel" for="inputDate">Data</label>
+              <input type="date" class="finput" id="inputDate">
+            </div>
+            <div class="fg">
+              <label class="flabel" for="inputMonth">Mes</label>
+              <select class="finput" id="inputMonth"></select>
+            </div>
+          </div>
+          <div class="sec-label small-label">Valor bruto por plataforma (R$)</div>
+          <div class="pigrid" id="saleInputs"></div>
+          <div class="actions-row">
+            <button class="btn btn-primary" id="registerSaleButton" type="button">Registrar</button>
+            <button class="btn btn-secondary" id="clearSaleButton" type="button">Limpar</button>
+          </div>
+        </div>
+        <div class="ipanel" id="panel-returns">
+          <div class="irow">
+            <div class="fg">
+              <label class="flabel" for="returnMonth">Mes</label>
+              <select class="finput" id="returnMonth"></select>
+            </div>
+          </div>
+          <div class="sec-label small-label">Total de devolucoes por plataforma no mes (R$)</div>
+          <div class="pigrid" id="returnInputs"></div>
+          <div class="actions-row">
+            <button class="btn btn-primary" id="saveReturnsButton" type="button">Salvar Devolucoes</button>
+            <button class="btn btn-secondary" id="cancelReturnsButton" type="button">Cancelar</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Projecao do Mes</div>
+            <div class="card-sub">Estimativa baseada na media dos dias ja lancados</div>
+          </div>
+        </div>
+        <div class="projection-grid" id="projectionGrid"></div>
+      </div>
+      <div class="card commission-card" id="commissionCard"></div>
+    </main>
+  </section>
+
+  <section class="screen calculator-screen" id="calculatorScreen" hidden>
+    <header>
+      <div class="header-left">
+        <button class="btn btn-secondary" id="calculatorBackToHubButton" type="button">Menu</button>
+        <button class="btn btn-secondary" id="calculatorOpenDashboardButton" type="button">Dashboard</button>
+      </div>
+      <div class="logo header-brand"><div class="logo-dot"></div><span id="calculatorTitle">Calculadora</span></div>
+      <div class="header-right">
+        <button class="btn btn-secondary" id="calculatorManagePlatformsButton" type="button">Plataformas</button>
+      </div>
+    </header>
+    <main class="calculator-main">
+      <div class="grid2">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Base do Produto</div>
+              <div class="card-sub">Informe os custos comuns antes de abrir o resultado por plataforma.</div>
+            </div>
+          </div>
+          <div class="pricing-form-grid">
+            <label class="fg">
+              <span class="flabel">Custo do Produto</span>
+              <input class="finput" id="pricingProductCost" type="number" step="0.01" min="0">
+            </label>
+            <label class="fg">
+              <span class="flabel">Embalagem</span>
+              <input class="finput" id="pricingPackagingCost" type="number" step="0.01" min="0">
+            </label>
+            <label class="fg">
+              <span class="flabel">Custos Extras</span>
+              <input class="finput" id="pricingExtraCost" type="number" step="0.01" min="0">
+            </label>
+            <label class="fg">
+              <span class="flabel">Frete Bancado</span>
+              <input class="finput" id="pricingShippingSubsidy" type="number" step="0.01" min="0">
+            </label>
+          </div>
+          <div class="pricing-mode-row">
+            <button class="mode-card" id="pricingModeMargin" type="button">Calcular por margem</button>
+            <button class="mode-card" id="pricingModeProfit" type="button">Calcular por lucro</button>
+          </div>
+          <div class="pricing-form-grid">
+            <label class="fg" id="pricingTargetMarginWrap">
+              <span class="flabel">Margem Desejada %</span>
+              <input class="finput" id="pricingTargetMargin" type="number" step="0.1" min="0">
+            </label>
+            <label class="fg" id="pricingTargetProfitWrap" hidden>
+              <span class="flabel">Lucro Desejado R$</span>
+              <input class="finput" id="pricingTargetProfit" type="number" step="0.01" min="0">
+            </label>
+          </div>
+          <div class="pricing-base-resume">
+            <span>Custo base considerado</span>
+            <strong id="pricingBaseCost">R$ 0,00</strong>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Como Ler</div>
+              <div class="card-sub">As taxas podem ser ajustadas individualmente em cada plataforma.</div>
+            </div>
+          </div>
+          <div class="calculator-tips">
+            <div class="empty-state">Use os valores como ponto de partida. Se a plataforma tiver regra por categoria, campanha ou faixa de preco, ajuste o card correspondente antes de confiar no preco final.</div>
+            <div class="empty-state">Para marketplaces com frete variavel, deixe o frete zerado na base e preencha o repasse extra no card da plataforma quando necessario.</div>
+          </div>
+        </div>
+      </div>
+      <div class="pricing-platform-grid" id="pricingPlatformGrid"></div>
+    </main>
+  </section>
+</div>
+
+<div class="moverlay" id="addMonthModal">
+  <div class="modal modal-small">
+    <div class="mheader">
+      <div>
+        <div class="mtitle">Adicionar Mes</div>
+        <div class="card-sub modal-subtitle">Selecione para criar um novo periodo</div>
+      </div>
+      <button class="mclose" data-close-modal="addMonthModal" type="button">X</button>
+    </div>
+    <div class="month-grid" id="monthPicker"></div>
+    <div class="actions-row">
+      <button class="btn btn-primary" id="confirmAddMonthButton" type="button">Criar Mes</button>
+      <button class="btn btn-secondary" id="openDeleteMonthButton" type="button">Excluir Mes Atual</button>
+      <button class="btn btn-secondary" data-close-modal="addMonthModal" type="button">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="moverlay" id="importBackupModal">
+  <div class="modal modal-small">
+    <div class="mheader">
+      <div>
+        <div class="mtitle">Importar Backup</div>
+        <div class="card-sub modal-subtitle">Escolha se deseja mesclar com os dados atuais ou substituir tudo pelo arquivo.</div>
+      </div>
+      <button class="mclose" data-close-modal="importBackupModal" type="button">X</button>
+    </div>
+    <div class="modal-stack">
+      <button class="mode-card active" id="importModeMergeButton" data-import-mode="merge" type="button">
+        <span class="mode-card-title">Mesclar</span>
+        <span class="mode-card-sub">Mantem o que ja existe e adiciona dados do backup.</span>
+      </button>
+      <button class="mode-card" id="importModeReplaceButton" data-import-mode="replace" type="button">
+        <span class="mode-card-title">Substituir</span>
+        <span class="mode-card-sub">Usa o backup como base principal e troca meses, plataformas e lancamentos.</span>
+      </button>
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-primary" id="confirmImportBackupButton" type="button">Escolher Arquivo</button>
+      <button class="btn btn-secondary" data-close-modal="importBackupModal" type="button">Cancelar</button>
+      <input id="backupFileInputModal" type="file" accept=".json,application/json" hidden>
+    </div>
+  </div>
+</div>
+
+<div class="moverlay" id="changePasswordModal">
+  <div class="modal modal-small">
+    <div class="mheader">
+      <div>
+        <div class="mtitle">Trocar Senha</div>
+        <div class="card-sub modal-subtitle">Atualize sua senha local sem alterar os dados salvos.</div>
+      </div>
+      <button class="mclose" data-close-modal="changePasswordModal" type="button">X</button>
+    </div>
+    <div class="modal-stack">
+      <div class="fg">
+        <label class="flabel" for="currentPasswordInput">Senha Atual</label>
+        <input class="finput" id="currentPasswordInput" type="password" autocomplete="current-password" placeholder="Senha atual">
+      </div>
+      <div class="fg">
+        <label class="flabel" for="newPasswordInput">Nova Senha</label>
+        <input class="finput" id="newPasswordInput" type="password" autocomplete="new-password" placeholder="Nova senha">
+      </div>
+      <div class="fg">
+        <label class="flabel" for="confirmPasswordInput">Confirmar Nova Senha</label>
+        <input class="finput" id="confirmPasswordInput" type="password" autocomplete="new-password" placeholder="Repita a nova senha">
+      </div>
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-primary" id="savePasswordButton" type="button">Salvar Senha</button>
+      <button class="btn btn-secondary" data-close-modal="changePasswordModal" type="button">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="moverlay" id="deleteMonthModal">
+  <div class="modal modal-small">
+    <div class="mheader">
+      <div>
+        <div class="mtitle">Excluir Mes</div>
+        <div class="card-sub modal-subtitle" id="deleteMonthSubtitle">Confirme a exclusao do mes atual.</div>
+      </div>
+      <button class="mclose" data-close-modal="deleteMonthModal" type="button">X</button>
+    </div>
+    <div class="empty-state delete-month-warning">
+      Essa acao remove todas as vendas e devolucoes do mes selecionado.
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-primary btn-danger" id="confirmDeleteMonthButton" type="button">Excluir Mes</button>
+      <button class="btn btn-secondary" data-close-modal="deleteMonthModal" type="button">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="moverlay" id="reportModal">
+  <div class="modal rmodal">
+    <div class="mheader">
+      <div>
+        <div class="mtitle" id="reportTitle">Relatorio</div>
+        <div class="card-sub modal-subtitle">Desempenho completo de vendas</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary btn-print" id="exportReportButton" type="button">Exportar PNG</button>
+        <button class="mclose" data-close-modal="reportModal" type="button">X</button>
+      </div>
+    </div>
+    <div id="reportContent"></div>
+  </div>
+</div>
+
+<div class="moverlay" id="dailyDetailsModal">
+  <div class="modal rmodal">
+    <div class="mheader">
+      <div>
+        <div class="mtitle">Vendas Diarias</div>
+        <div class="card-sub modal-subtitle">Edite os valores diretamente na tabela para corrigir um dia especifico.</div>
+      </div>
+      <button class="mclose" data-close-modal="dailyDetailsModal" type="button">X</button>
+    </div>
+    <div class="daily-wrap modal-daily-wrap"><table class="dtable" id="dailyDetailsTable"></table></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+</body>
+</html>
