@@ -391,7 +391,7 @@ main{padding:24px 36px;display:grid;gap:18px;}
   .menu-dropdown{left:0;max-width:min(280px,calc(100vw - 20px));}
   .kpi-row{grid-template-columns:1fr;}
   .pigrid{grid-template-columns:1fr;}
-  .month-tabs{display:grid;grid-template-columns:repeat(2,1fr);}
+  .month-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:6px;}
   .auth-screen,.setup-screen,.hub-screen{padding:12px;}
   .auth-card,.hub-shell{padding:18px;}
   .setup-shell{width:100%;}
@@ -403,7 +403,7 @@ main{padding:24px 36px;display:grid;gap:18px;}
   .header-left{gap:10px;}
   .header-right{gap:10px;}
   .month-tabs{order:3;width:100%;}
-  .month-tab{min-height:40px;font-size:13px;}
+  .month-tab{min-height:36px;font-size:12px;padding:7px 8px;}
   .header-right .btn-add,.header-right .btn-report{flex:1 1 0;text-align:center;justify-content:center;}
   .header-right .btn-add,.header-right .btn-report,.actions-row .btn,.irow .btn{min-height:44px;}
   .actions-row{display:grid;grid-template-columns:1fr;gap:10px;width:100%;}
@@ -412,8 +412,11 @@ main{padding:24px 36px;display:grid;gap:18px;}
   .itab{text-align:center;}
   .dtable,.ptable,.rtable{font-size:13px;}
   .daily-wrap{margin-inline:-4px;padding-inline:4px;}
-  .wgrid{grid-template-columns:1fr;}
-  .wbcon{height:72px;}
+  .wgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+  .wbwrap{gap:4px;padding:8px 6px;border-radius:12px;background:var(--surface2);}
+  .wblabel,.wbpct,.wbdelta{font-size:11px;}
+  .wbcon{height:56px;border-radius:7px;}
+  .wbval{font-size:11px;}
   .month-grid{grid-template-columns:repeat(2,1fr);}
   .rkpi-val{font-size:22px;}
   .commission-title{font-size:24px;}
@@ -457,9 +460,12 @@ main{padding:24px 36px;display:grid;gap:18px;}
   .card-title{font-size:16px;}
   .kpi-value{font-size:26px;}
   .hub-card strong{font-size:20px;}
-  .month-tabs{grid-template-columns:1fr;}
-  .month-tab{width:100%;}
-  .month-grid{grid-template-columns:1fr;}
+  .month-tabs{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .month-tab{width:100%;min-height:34px;font-size:11px;padding:6px 8px;}
+  .wgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;}
+  .wbwrap{padding:7px 5px;}
+  .wbcon{height:52px;}
+  .month-grid{grid-template-columns:repeat(2,1fr);}
   .setup-item-copy span,.auth-status,.card-sub,.projection-sub,.projection-meta,.pricing-note{white-space:normal;}
   .menu-dropdown{left:0;right:0;width:auto;max-width:none;min-width:0;}
   .dtable th,.ptable th,.rtable th,.dtable td,.ptable td,.rtable td{padding:8px 9px;}
