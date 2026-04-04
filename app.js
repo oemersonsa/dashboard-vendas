@@ -151,6 +151,7 @@ let googleTokenClient = null;
 let googleAccessToken = "";
 let googleDriveSyncTimer = null;
 let googleSyncInFlight = false;
+let googleDriveBootstrapStarted = false;
 let googleSignInReady = false;
 let googleSignInRenderTimer = null;
 let activeAppScreen = "hub";
@@ -1022,11 +1023,6 @@ function requestGoogleAccessToken(prompt = "", { interactive = true } = {}) {
         });
         return;
       }
-      if (!interactive && !googleAccessToken) {
-        driveDebug("request token:skip", "silent mode sem token ativo");
-        resolve(null);
-        return;
-      }
       const tokenClient = ensureGoogleIdentityClient();
       tokenClient.callback = (response) => {
         if (response?.error) {
@@ -1193,6 +1189,42 @@ function scheduleGoogleDriveSync() {
   googleDriveSyncTimer = setTimeout(() => {
     syncGoogleDriveNow({ silent: true });
   }, 1200);
+}
+
+async function restoreGoogleDriveOnSessionStart() {
+  if (googleDriveBootstrapStarted) return false;
+  if (!isGoogleAuth() || !canUseGoogleDrive()) return false;
+  if (!isGoogleConfigured() || !isGoogleOriginSupported()) return false;
+
+  googleDriveBootstrapStarted = true;
+  driveDebug("bootstrap:start", {
+    user: state.auth?.username || null,
+    provider: state.auth?.provider || "local"
+  });
+
+  const restored = await restoreFromGoogleDrive({
+    silent: true,
+    preferredMode: "replace",
+    showSuccessToast: false,
+    showMissingToast: false
+  });
+
+  if (restored) {
+    state.auth.googleDriveLastAction = "restored_on_login";
+    saveState({ skipGoogleSync: true });
+    renderGoogleUi();
+    driveDebug("bootstrap:restored", {
+      fileId: state.auth?.googleDriveFileId || null,
+      modifiedTime: state.auth?.googleDriveModifiedTime || null
+    });
+    toast("Backup do Google Drive carregado automaticamente");
+    return true;
+  }
+
+  driveDebug("bootstrap:no-remote-restore", {
+    hasToken: Boolean(googleAccessToken)
+  });
+  return false;
 }
 
 async function syncGoogleDriveNow({ silent = false, showSuccessToast = !silent, showPromptToast = !silent } = {}) {
@@ -2908,7 +2940,7 @@ function init() {
   const storedAuth = loadStoredAuth();
   if (!state.auth?.username && storedAuth?.username) {
     state.auth = storedAuth;
-    saveState();
+    saveState({ skipGoogleSync: true });
   }
   ensureStateMonths(state);
   applyTheme();
@@ -2922,6 +2954,7 @@ function init() {
   window.addEventListener("beforeunload", saveState);
   renderGoogleUi();
   renderScreen();
+  restoreGoogleDriveOnSessionStart();
 }
 
 init();
