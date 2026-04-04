@@ -162,7 +162,13 @@ let sessionUser = loadSession();
 activeAppScreen = state.currentScreen || "hub";
 
 const R = (v) => "R$ " + Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const RS = (v) => Math.abs(Number(v || 0)) >= 1000 ? "R$ " + (Number(v || 0) / 1000).toFixed(1) + "k" : "R$ " + Number(v || 0).toFixed(0);
+const RS = (v) => {
+  const value = Number(v || 0);
+  const digits = Number.isInteger(value)
+    ? { minimumFractionDigits: 0, maximumFractionDigits: 0 }
+    : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+  return "R$ " + value.toLocaleString("pt-BR", digits);
+};
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
