@@ -1,2 +1,5 @@
 Thumbs.db
 Desktop.ini
+.env
+.data/
+node_modules/

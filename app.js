@@ -3,10 +3,13 @@ const STORAGE_BACKUP_KEY = "dashboard-vendas-state-v2-backup";
 const LAST_SAVED_KEY = "dashboard-vendas-last-saved-v1";
 const SESSION_KEY = "dashboard-vendas-session-v1";
 const THEME_KEY = "dashboard-vendas-theme-v1";
+const GOOGLE_TOKEN_STORAGE_KEY = "dashboard-vendas-google-token-v1";
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+const GOOGLE_TOKEN_EXPIRY_SKEW_MS = 60 * 1000;
 const GOOGLE_DRIVE_FILE_NAME = "dashboard-vendas-state.json";
 const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 const GOOGLE_CONFIG = window.DASHBOARD_GOOGLE_CONFIG || {};
+const GOOGLE_BACKEND_API_BASE = String(GOOGLE_CONFIG.backendBaseUrl || "").replace(/\/$/, "");
 
 const ALL_MONTHS = [
   "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
@@ -154,6 +157,16 @@ let googleSyncInFlight = false;
 let googleDriveBootstrapStarted = false;
 let googleSignInReady = false;
 let googleSignInRenderTimer = null;
+let googleDriveBackendStatus = {
+  checked: false,
+  available: false,
+  configured: false,
+  connected: false,
+  email: "",
+  fileId: "",
+  modifiedTime: "",
+  busy: false
+};
 let activeAppScreen = "hub";
 
 const state = loadState();
@@ -234,7 +247,8 @@ function normalizeAuth(auth) {
     googleSub: String(auth?.googleSub || ""),
     googleDriveFileId: String(auth.googleDriveFileId || ""),
     googleDriveModifiedTime: String(auth.googleDriveModifiedTime || ""),
-    googleDriveLastAction: String(auth.googleDriveLastAction || "")
+    googleDriveLastAction: String(auth.googleDriveLastAction || ""),
+    googleDriveAuthorized: Boolean(auth?.googleDriveAuthorized)
   };
 }
 
@@ -269,7 +283,9 @@ function canUseGoogleDrive() {
 }
 
 function hasGoogleDriveAccess() {
-  return canUseGoogleDrive() && Boolean(googleAccessToken);
+  if (!canUseGoogleDrive()) return false;
+  if (googleDriveBackendStatus.available) return googleDriveBackendStatus.connected;
+  return Boolean(getActiveGoogleAccessToken());
 }
 
 function getDefaultMonth() {
@@ -688,6 +704,47 @@ function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
+function loadCachedGoogleToken() {
+  try {
+    const raw = sessionStorage.getItem(GOOGLE_TOKEN_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const accessToken = String(parsed?.accessToken || "");
+    const expiresAt = Number(parsed?.expiresAt || 0);
+    if (!accessToken || !expiresAt || (Date.now() + GOOGLE_TOKEN_EXPIRY_SKEW_MS) >= expiresAt) {
+      sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+      return null;
+    }
+    return { accessToken, expiresAt };
+  } catch (error) {
+    sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+    return null;
+  }
+}
+
+function persistGoogleToken(accessToken, expiresInSeconds = 0) {
+  const safeToken = String(accessToken || "").trim();
+  const safeExpiresIn = Number(expiresInSeconds || 0);
+  if (!safeToken || !safeExpiresIn) return;
+  sessionStorage.setItem(GOOGLE_TOKEN_STORAGE_KEY, JSON.stringify({
+    accessToken: safeToken,
+    expiresAt: Date.now() + (safeExpiresIn * 1000)
+  }));
+}
+
+function clearCachedGoogleToken() {
+  googleAccessToken = "";
+  sessionStorage.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+}
+
+function getActiveGoogleAccessToken() {
+  if (googleAccessToken) return googleAccessToken;
+  const cached = loadCachedGoogleToken();
+  if (!cached?.accessToken) return "";
+  googleAccessToken = cached.accessToken;
+  return googleAccessToken;
+}
+
 function getCurrentYear() {
   return new Date().getFullYear();
 }
@@ -782,6 +839,194 @@ function driveDebug(step, details = null) {
   console.log(`[DriveSync] ${step}`, details);
 }
 
+function getGoogleDriveApiUrl(path) {
+  return `${GOOGLE_BACKEND_API_BASE}${path}`;
+}
+
+function resetGoogleDriveBackendStatus() {
+  googleDriveBackendStatus = {
+    checked: true,
+    available: googleDriveBackendStatus.available,
+    configured: googleDriveBackendStatus.configured,
+    connected: false,
+    email: "",
+    fileId: "",
+    modifiedTime: "",
+    busy: false
+  };
+}
+
+function applyGoogleDriveBackendStatus(status = {}) {
+  googleDriveBackendStatus = {
+    checked: true,
+    available: Boolean(status?.available),
+    configured: Boolean(status?.configured),
+    connected: Boolean(status?.connected),
+    email: String(status?.email || ""),
+    fileId: String(status?.fileId || ""),
+    modifiedTime: String(status?.modifiedTime || ""),
+    busy: false
+  };
+
+  if (!state.auth) return;
+  if (googleDriveBackendStatus.connected) {
+    state.auth.googleDriveAuthorized = true;
+    if (googleDriveBackendStatus.fileId) state.auth.googleDriveFileId = googleDriveBackendStatus.fileId;
+    if (googleDriveBackendStatus.modifiedTime) state.auth.googleDriveModifiedTime = googleDriveBackendStatus.modifiedTime;
+  }
+}
+
+async function refreshGoogleDriveBackendStatus({ render = true } = {}) {
+  try {
+    const username = encodeURIComponent(state.auth?.username || "");
+    const response = await fetch(getGoogleDriveApiUrl(`/api/google-drive/status${username ? `?username=${username}` : ""}`), {
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) throw new Error(`backend_status_${response.status}`);
+    const status = await response.json();
+    applyGoogleDriveBackendStatus(status);
+    driveDebug("backend:status", status);
+  } catch (error) {
+    googleDriveBackendStatus = {
+      checked: true,
+      available: false,
+      configured: false,
+      connected: false,
+      email: "",
+      fileId: "",
+      modifiedTime: "",
+      busy: false
+    };
+    driveDebug("backend:status unavailable", {
+      message: error?.message || String(error)
+    });
+  } finally {
+    if (render) renderGoogleUi();
+  }
+}
+
+async function readGoogleDriveBackendJson(path, options = {}) {
+  const response = await fetch(getGoogleDriveApiUrl(path), {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(options.headers || {})
+    }
+  });
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (error) {
+    data = null;
+  }
+  if (!response.ok) {
+    throw new Error(data?.error || `backend_request_failed_${response.status}`);
+  }
+  return data;
+}
+
+function waitForGoogleDrivePopup(popup, expectedUsername) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const popupMonitor = setInterval(() => {
+      if (!popup || popup.closed) {
+        cleanup();
+        reject(new Error("popup_closed"));
+      }
+    }, 400);
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("popup_timeout"));
+    }, 120000);
+
+    const onMessage = (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== "google-drive-connected") return;
+      if (expectedUsername && event.data?.username !== expectedUsername) return;
+      cleanup();
+      if (event.data?.success) resolve(event.data);
+      else reject(new Error(event.data?.error || "google_drive_connect_failed"));
+    };
+
+    function cleanup() {
+      if (settled) return;
+      settled = true;
+      clearInterval(popupMonitor);
+      clearTimeout(timeout);
+      window.removeEventListener("message", onMessage);
+    }
+
+    window.addEventListener("message", onMessage);
+  });
+}
+
+async function ensureGoogleDriveBackendConnection({ interactive = true } = {}) {
+  if (!canUseGoogleDrive()) return false;
+  if (!googleDriveBackendStatus.checked) await refreshGoogleDriveBackendStatus({ render: false });
+  if (!googleDriveBackendStatus.available || !googleDriveBackendStatus.configured) return false;
+  if (googleDriveBackendStatus.connected) return true;
+  if (!interactive) return false;
+
+  const connectUrl = getGoogleDriveApiUrl(`/api/google-drive/connect?username=${encodeURIComponent(state.auth.username)}`);
+  const popup = window.open(connectUrl, "googleDriveConnect", "popup=yes,width=520,height=720");
+  if (!popup) throw new Error("popup_failed_to_open");
+  popup.focus();
+  await waitForGoogleDrivePopup(popup, state.auth.username);
+  await refreshGoogleDriveBackendStatus({ render: false });
+  return googleDriveBackendStatus.connected;
+}
+
+async function syncGoogleDriveViaBackend() {
+  const result = await readGoogleDriveBackendJson("/api/google-drive/sync", {
+    method: "POST",
+    body: JSON.stringify({
+      username: state.auth.username,
+      payload: getBackupPayload()
+    })
+  });
+
+  state.auth.googleDriveFileId = result.fileId || "";
+  state.auth.googleDriveModifiedTime = result.modifiedTime || new Date().toISOString();
+  state.auth.googleDriveLastAction = result.action || "updated";
+  state.auth.googleDriveAuthorized = true;
+  applyGoogleDriveBackendStatus({
+    available: true,
+    configured: true,
+    connected: true,
+    email: result.email || googleDriveBackendStatus.email,
+    fileId: state.auth.googleDriveFileId,
+    modifiedTime: state.auth.googleDriveModifiedTime
+  });
+  return result;
+}
+
+async function restoreGoogleDriveViaBackend(preferredMode) {
+  const result = await readGoogleDriveBackendJson("/api/google-drive/restore", {
+    method: "POST",
+    body: JSON.stringify({
+      username: state.auth.username
+    })
+  });
+
+  applyImportedBackup(result.payload, preferredMode);
+  state.auth.googleDriveFileId = result.fileId || "";
+  state.auth.googleDriveModifiedTime = result.modifiedTime || "";
+  state.auth.googleDriveLastAction = "restored";
+  state.auth.googleDriveAuthorized = true;
+  applyGoogleDriveBackendStatus({
+    available: true,
+    configured: true,
+    connected: true,
+    email: result.email || googleDriveBackendStatus.email,
+    fileId: state.auth.googleDriveFileId,
+    modifiedTime: state.auth.googleDriveModifiedTime
+  });
+  return result;
+}
+
 function renderGoogleUi() {
   const googleHint = document.getElementById("googleAuthHint");
   const syncButton = document.getElementById("syncGoogleDriveButton");
@@ -789,10 +1034,18 @@ function renderGoogleUi() {
   const changePasswordButton = document.getElementById("changePasswordButton");
   const googleReady = isGoogleConfigured();
   const googleOriginReady = isGoogleOriginSupported();
+  const backendDriveReady = googleDriveBackendStatus.available && googleDriveBackendStatus.configured;
+  const driveReady = backendDriveReady || (googleReady && googleOriginReady);
   const driveAvailable = canUseGoogleDrive();
 
   if (googleHint) {
-    if (!googleReady) {
+    if (backendDriveReady && driveAvailable && !googleDriveBackendStatus.connected) {
+      googleHint.textContent = "Use Sincronizar Google Drive para conectar sua conta uma vez. Depois a renovacao fica no backend.";
+    } else if (backendDriveReady && driveAvailable) {
+      googleHint.textContent = "Backup do Google Drive conectado via backend. As proximas sincronizacoes podem rodar sem popup.";
+    } else if (googleDriveBackendStatus.available && !googleDriveBackendStatus.configured) {
+      googleHint.textContent = "Configure o arquivo .env do backend com GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET para liberar o Google Drive.";
+    } else if (!googleReady) {
       googleHint.textContent = "Edite google-config.js com o Client ID OAuth Web da sua conta Google Cloud para usar login e backup no Google.";
     } else if (!googleOriginReady) {
       googleHint.textContent = "Abra este dashboard em https ou em http://localhost para usar login com Google. O protocolo file:// nao e aceito pelo Google.";
@@ -807,11 +1060,22 @@ function renderGoogleUi() {
     }
   }
 
-  if (syncButton) syncButton.disabled = !googleReady || !googleOriginReady || !driveAvailable || googleSyncInFlight;
-  if (restoreButton) restoreButton.disabled = !googleReady || !googleOriginReady || !driveAvailable || googleSyncInFlight;
+  if (syncButton) syncButton.disabled = !driveReady || !driveAvailable || googleSyncInFlight;
+  if (restoreButton) restoreButton.disabled = !driveReady || !driveAvailable || googleSyncInFlight;
   if (changePasswordButton) changePasswordButton.hidden = !isLocalAuth();
 
-  if (!googleReady) {
+  if (backendDriveReady && googleDriveBackendStatus.connected) {
+    const stamp = formatSavedAt(state.auth?.googleDriveModifiedTime || googleDriveBackendStatus.modifiedTime || "");
+    const actionLabel = getGoogleDriveActionLabel(state.auth?.googleDriveLastAction || "");
+    const accountLabel = googleDriveBackendStatus.email ? ` (${googleDriveBackendStatus.email})` : "";
+    setGoogleDriveStatus(stamp
+      ? `Google Drive${accountLabel} ${actionLabel} · ultima sync em ${stamp}`
+      : `Google Drive${accountLabel} conectado via backend`);
+  } else if (backendDriveReady && driveAvailable) {
+    setGoogleDriveStatus("Google Drive aguardando conexao com o backend");
+  } else if (googleDriveBackendStatus.available && !googleDriveBackendStatus.configured) {
+    setGoogleDriveStatus("Google Drive indisponivel: configure o backend (.env).");
+  } else if (!googleReady) {
     setGoogleDriveStatus("Google Drive indisponivel: configure o Client ID.");
   } else if (!googleOriginReady) {
     setGoogleDriveStatus("Google indisponivel neste modo de abertura. Use localhost ou https.");
@@ -913,6 +1177,7 @@ function buildGoogleProfile(credentialResponse) {
 async function finalizeGoogleLogin({ isFirstAccess = false } = {}) {
   saveState({ skipGoogleSync: true });
   saveSession(state.auth.username, "google");
+  await refreshGoogleDriveBackendStatus({ render: false });
   renderScreen();
 
   const restored = await restoreFromGoogleDrive({
@@ -1016,15 +1281,16 @@ function ensureGoogleIdentityClient() {
 function requestGoogleAccessToken(prompt = "", { interactive = true } = {}) {
   return new Promise((resolve, reject) => {
     try {
+      const activeToken = getActiveGoogleAccessToken();
       driveDebug("request token:start", {
         interactive,
-        hasToken: Boolean(googleAccessToken),
+        hasToken: Boolean(activeToken),
         prompt
       });
-      if (googleAccessToken) {
+      if (activeToken) {
         driveDebug("request token:reuse existing token");
         resolve({
-          access_token: googleAccessToken,
+          access_token: activeToken,
           reused: true
         });
         return;
@@ -1037,6 +1303,11 @@ function requestGoogleAccessToken(prompt = "", { interactive = true } = {}) {
           return;
         }
         googleAccessToken = response.access_token || googleAccessToken;
+        persistGoogleToken(googleAccessToken, response?.expires_in || 0);
+        if (state.auth && !state.auth.googleDriveAuthorized) {
+          state.auth.googleDriveAuthorized = true;
+          saveState({ skipGoogleSync: true });
+        }
         driveDebug("request token:success", {
           hasAccessToken: Boolean(googleAccessToken),
           scope: response?.scope || "",
@@ -1048,9 +1319,10 @@ function requestGoogleAccessToken(prompt = "", { interactive = true } = {}) {
         driveDebug("request token:error callback", error);
         reject(new Error(error?.type || error?.message || "google_token_error"));
       };
+      const hasSavedDriveAuthorization = Boolean(state.auth?.googleDriveAuthorized);
       const nextPrompt = interactive
-        ? (googleAccessToken ? prompt : (prompt || "consent"))
-        : "";
+        ? (prompt || (hasSavedDriveAuthorization ? "" : "consent"))
+        : "none";
       driveDebug("request token:dispatch", { prompt: nextPrompt });
       tokenClient.requestAccessToken({ prompt: nextPrompt });
     } catch (error) {
@@ -1064,9 +1336,9 @@ async function googleApiFetch(url, options = {}) {
   driveDebug("fetch:start", {
     url,
     method: options.method || "GET",
-    hasToken: Boolean(googleAccessToken)
+    hasToken: Boolean(getActiveGoogleAccessToken())
   });
-  if (!googleAccessToken) await requestGoogleAccessToken("");
+  if (!getActiveGoogleAccessToken()) await requestGoogleAccessToken("");
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -1082,7 +1354,7 @@ async function googleApiFetch(url, options = {}) {
   });
 
   if (response.status === 401) {
-    googleAccessToken = "";
+    clearCachedGoogleToken();
     driveDebug("fetch:retry after 401", { url });
     await requestGoogleAccessToken("");
     const retryResponse = await fetch(url, {
@@ -1199,14 +1471,17 @@ function scheduleGoogleDriveSync() {
 
 async function restoreGoogleDriveOnSessionStart() {
   if (googleDriveBootstrapStarted) return false;
-  if (!isGoogleAuth() || !canUseGoogleDrive()) return false;
-  if (!isGoogleConfigured() || !isGoogleOriginSupported()) return false;
+  if (!canUseGoogleDrive()) return false;
 
   googleDriveBootstrapStarted = true;
   driveDebug("bootstrap:start", {
     user: state.auth?.username || null,
     provider: state.auth?.provider || "local"
   });
+
+  if (!googleDriveBackendStatus.checked) {
+    await refreshGoogleDriveBackendStatus({ render: false });
+  }
 
   const restored = await restoreFromGoogleDrive({
     silent: true,
@@ -1252,6 +1527,29 @@ async function syncGoogleDriveNow({ silent = false, showSuccessToast = !silent, 
     });
     googleSyncInFlight = true;
     renderGoogleUi();
+
+    if (!googleDriveBackendStatus.checked) {
+      await refreshGoogleDriveBackendStatus({ render: false });
+    }
+    if (googleDriveBackendStatus.available && googleDriveBackendStatus.configured) {
+      const connected = await ensureGoogleDriveBackendConnection({ interactive: !silent });
+      if (!connected) {
+        driveDebug("sync:backend waiting user authorization");
+        if (showPromptToast) toast("Clique em Sincronizar Google Drive para conectar sua conta");
+        return false;
+      }
+      const upload = await syncGoogleDriveViaBackend();
+      saveState({ skipGoogleSync: true });
+      renderGoogleUi();
+      driveDebug("sync:backend success", {
+        action: upload.action,
+        fileId: state.auth.googleDriveFileId,
+        modifiedTime: state.auth.googleDriveModifiedTime
+      });
+      if (showSuccessToast) toast(upload.action === "created" ? "Backup criado no Google Drive" : "Backup atualizado no Google Drive");
+      return upload.action || "updated";
+    }
+
     const tokenResponse = await requestGoogleAccessToken("", { interactive: !silent });
     if (!tokenResponse && !googleAccessToken) {
       driveDebug("sync:waiting user authorization");
@@ -1282,6 +1580,10 @@ async function syncGoogleDriveNow({ silent = false, showSuccessToast = !silent, 
         toast("A autorizacao do Google Drive foi fechada antes de concluir");
       } else if (message.includes("popup_failed_to_open")) {
         toast("O navegador bloqueou a janela de autorizacao do Google Drive");
+      } else if (message.includes("google_drive_not_connected")) {
+        toast("Conecte sua conta Google Drive para concluir a sincronizacao");
+      } else if (message.includes("google_drive_backend_not_configured")) {
+        toast("O backend do Google Drive ainda nao foi configurado");
       } else if (message.includes("access_denied")) {
         toast("O acesso ao Google Drive foi negado");
       } else {
@@ -1313,6 +1615,28 @@ async function restoreFromGoogleDrive({ silent = false, preferredMode = "merge",
     });
     googleSyncInFlight = true;
     renderGoogleUi();
+
+    if (!googleDriveBackendStatus.checked) {
+      await refreshGoogleDriveBackendStatus({ render: false });
+    }
+    if (googleDriveBackendStatus.available && googleDriveBackendStatus.configured) {
+      const connected = await ensureGoogleDriveBackendConnection({ interactive: !silent });
+      if (!connected) {
+        driveDebug("restore:backend waiting user authorization");
+        if (!silent) toast("Clique em Restaurar do Google Drive para conectar sua conta");
+        return false;
+      }
+      const remote = await restoreGoogleDriveViaBackend(preferredMode);
+      saveState({ skipGoogleSync: true });
+      renderGoogleUi();
+      driveDebug("restore:backend success", {
+        fileId: state.auth.googleDriveFileId,
+        modifiedTime: state.auth.googleDriveModifiedTime
+      });
+      if (showSuccessToast) toast("Backup restaurado do Google Drive");
+      return true;
+    }
+
     const tokenResponse = await requestGoogleAccessToken("", { interactive: !silent });
     if (!tokenResponse && !googleAccessToken) {
       driveDebug("restore:waiting user authorization");
@@ -1348,6 +1672,12 @@ async function restoreFromGoogleDrive({ silent = false, preferredMode = "merge",
         toast("A autorizacao do Google Drive foi fechada antes de concluir");
       } else if (message.includes("popup_failed_to_open")) {
         toast("O navegador bloqueou a janela de autorizacao do Google Drive");
+      } else if (message.includes("google_drive_not_connected")) {
+        toast("Conecte sua conta Google Drive para restaurar o backup");
+      } else if (message.includes("google_drive_file_not_found")) {
+        if (showMissingToast) toast("Nenhum backup encontrado no Google Drive");
+      } else if (message.includes("google_drive_backend_not_configured")) {
+        toast("O backend do Google Drive ainda nao foi configurado");
       } else if (message.includes("access_denied")) {
         toast("O acesso ao Google Drive foi negado");
       } else {
@@ -1697,6 +2027,7 @@ function handleAuthSubmit() {
     saveSession(username, "local");
     setActiveAppScreen("hub");
     toast("Acesso criado com sucesso");
+    refreshGoogleDriveBackendStatus();
     renderScreen();
     return;
   }
@@ -1708,12 +2039,14 @@ function handleAuthSubmit() {
 
   saveSession(username, "local");
   setActiveAppScreen("hub");
+  refreshGoogleDriveBackendStatus();
   renderScreen();
 }
 
 function handleLogout() {
   clearSession();
-  googleAccessToken = "";
+  clearCachedGoogleToken();
+  resetGoogleDriveBackendStatus();
   setActiveAppScreen("hub");
   authMode = state.auth?.provider === "google" ? "login" : (state.auth?.username ? "login" : "create");
   closeHeaderMenu();
@@ -2960,6 +3293,7 @@ function init() {
   window.addEventListener("beforeunload", saveState);
   renderGoogleUi();
   renderScreen();
+  refreshGoogleDriveBackendStatus();
   restoreGoogleDriveOnSessionStart();
 }
 
