@@ -187,6 +187,19 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
+}
+
 function hexToRgb(color) {
   const normalized = String(color || "").trim().replace("#", "");
   if (!/^[\da-f]{3}([\da-f]{3})?$/i.test(normalized)) return null;
@@ -275,7 +288,9 @@ function isGoogleAuth() {
 
 function isSessionActive() {
   if (!sessionUser || !state.auth?.username) return false;
-  return sessionUser.username === state.auth.username && (sessionUser.provider || "local") === (state.auth?.provider || "local");
+  return sessionUser.username === state.auth.username
+    && (sessionUser.provider || "local") === (state.auth?.provider || "local")
+    && Boolean(sessionUser.serverSessionToken);
 }
 
 function canUseGoogleDrive() {
@@ -489,11 +504,19 @@ function mergeImportedState(restoredState) {
 
 function normalizePlatform(platform = {}, index = 0) {
   const name = String(platform.name || "").trim();
-  const short = String(platform.icon || platform.short || name.slice(0, 2) || `P${index + 1}`).trim().toUpperCase().slice(0, 3);
+  const short = String(platform.icon || platform.short || name.slice(0, 2) || `P${index + 1}`)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 3);
+  const normalizedColor = String(platform.color || "").trim();
+  const color = /^#(?:[\da-f]{3}|[\da-f]{6})$/i.test(normalizedColor)
+    ? normalizedColor
+    : BRAND_COLORS[index % BRAND_COLORS.length];
   return {
     key: String(platform.key || slugifyText(name || `plataforma-${index + 1}`)).slice(0, 20) || `plataforma-${index + 1}`,
     name: name || `Plataforma ${index + 1}`,
-    color: platform.color || BRAND_COLORS[index % BRAND_COLORS.length],
+    color,
     icon: short || `P${index + 1}`,
     iconText: platform.iconText || "#ffffff"
   };
@@ -674,27 +697,36 @@ function loadSession() {
       return null;
     }
 
+    const serverSessionToken = String(parsed.serverSessionToken || "").trim();
+    if (!serverSessionToken) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+
     return {
       username: String(parsed.username),
-      provider: parsed.provider === "google" ? "google" : "local"
+      provider: parsed.provider === "google" ? "google" : "local",
+      serverSessionToken
     };
   } catch (error) {
     const legacySession = localStorage.getItem(SESSION_KEY) || "";
     if (!legacySession) return null;
-    localStorage.setItem(SESSION_KEY, JSON.stringify({
-      username: legacySession,
-      provider: "local",
-      expiresAt: Date.now() + SESSION_DURATION_MS
-    }));
-    return { username: legacySession, provider: "local" };
+    localStorage.removeItem(SESSION_KEY);
+    return null;
   }
 }
 
-function saveSession(username, provider = "local") {
-  sessionUser = { username, provider: provider === "google" ? "google" : "local" };
+function saveSession(username, provider = "local", serverSessionToken = sessionUser?.serverSessionToken || "") {
+  const safeToken = String(serverSessionToken || "").trim();
+  sessionUser = {
+    username,
+    provider: provider === "google" ? "google" : "local",
+    serverSessionToken: safeToken
+  };
   localStorage.setItem(SESSION_KEY, JSON.stringify({
     username,
     provider: sessionUser.provider,
+    serverSessionToken: safeToken,
     expiresAt: Date.now() + SESSION_DURATION_MS
   }));
 }
@@ -702,6 +734,60 @@ function saveSession(username, provider = "local") {
 function clearSession() {
   sessionUser = null;
   localStorage.removeItem(SESSION_KEY);
+}
+
+function getServerSessionToken() {
+  return String(sessionUser?.serverSessionToken || "").trim();
+}
+
+async function readBackendJson(path, options = {}) {
+  const serverSessionToken = getServerSessionToken();
+  const extraHeaders = options.requiresAuth === false || !serverSessionToken
+    ? {}
+    : { Authorization: `Bearer ${serverSessionToken}` };
+  const response = await fetch(getGoogleDriveApiUrl(path), {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...extraHeaders,
+      ...(options.headers || {})
+    }
+  });
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (error) {
+    data = null;
+  }
+  if (!response.ok) {
+    throw new Error(data?.error || `backend_request_failed_${response.status}`);
+  }
+  return data;
+}
+
+async function migrateLegacyLocalAuthIfNeeded() {
+  if (!state.auth?.username || !isLocalAuth() || !state.auth?.password) return false;
+  try {
+    await readBackendJson("/api/auth/migrate-local", {
+      method: "POST",
+      requiresAuth: false,
+      body: JSON.stringify({
+        username: state.auth.username,
+        password: state.auth.password
+      })
+    });
+    state.auth = normalizeAuth({
+      ...state.auth,
+      password: ""
+    });
+    saveState({ skipGoogleSync: true });
+    return true;
+  } catch (error) {
+    console.error("Falha ao migrar acesso local legado:", error);
+    return false;
+  }
 }
 
 function loadCachedGoogleToken() {
@@ -906,25 +992,7 @@ async function refreshGoogleDriveBackendStatus({ render = true } = {}) {
 }
 
 async function readGoogleDriveBackendJson(path, options = {}) {
-  const response = await fetch(getGoogleDriveApiUrl(path), {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(options.headers || {})
-    }
-  });
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch (error) {
-    data = null;
-  }
-  if (!response.ok) {
-    throw new Error(data?.error || `backend_request_failed_${response.status}`);
-  }
-  return data;
+  return readBackendJson(path, options);
 }
 
 function waitForGoogleDrivePopup(popup, expectedUsername) {
@@ -970,7 +1038,9 @@ async function ensureGoogleDriveBackendConnection({ interactive = true } = {}) {
   if (googleDriveBackendStatus.connected) return true;
   if (!interactive) return false;
 
-  const connectUrl = getGoogleDriveApiUrl(`/api/google-drive/connect?username=${encodeURIComponent(state.auth.username)}`);
+  const serverSessionToken = getServerSessionToken();
+  if (!serverSessionToken) throw new Error("session_missing");
+  const connectUrl = getGoogleDriveApiUrl(`/api/google-drive/connect?username=${encodeURIComponent(state.auth.username)}&sessionToken=${encodeURIComponent(serverSessionToken)}`);
   const popup = window.open(connectUrl, "googleDriveConnect", "popup=yes,width=520,height=720");
   if (!popup) throw new Error("popup_failed_to_open");
   popup.focus();
@@ -1176,7 +1246,6 @@ function buildGoogleProfile(credentialResponse) {
 
 async function finalizeGoogleLogin({ isFirstAccess = false } = {}) {
   saveState({ skipGoogleSync: true });
-  saveSession(state.auth.username, "google");
   await refreshGoogleDriveBackendStatus({ render: false });
   renderScreen();
 
@@ -1227,7 +1296,21 @@ async function handleGoogleCredentialResponse(credentialResponse) {
   }
 
   if (!state.auth?.username) {
+    let authResult = null;
+    try {
+      authResult = await readBackendJson("/api/auth/google-login", {
+        method: "POST",
+        requiresAuth: false,
+        body: JSON.stringify({
+          credential: String(credentialResponse?.credential || "")
+        })
+      });
+    } catch (error) {
+      toast("Nao foi possivel autenticar sua conta Google no backend");
+      return;
+    }
     state.auth = normalizeAuth(googleProfile);
+    saveSession(googleProfile.username, "google", authResult?.sessionToken || "");
     setActiveAppScreen("hub");
     await finalizeGoogleLogin({ isFirstAccess: true });
     return;
@@ -1247,12 +1330,27 @@ async function handleGoogleCredentialResponse(credentialResponse) {
     return;
   }
 
+  let authResult = null;
+  try {
+    authResult = await readBackendJson("/api/auth/google-login", {
+      method: "POST",
+      requiresAuth: false,
+      body: JSON.stringify({
+        credential: String(credentialResponse?.credential || "")
+      })
+    });
+  } catch (error) {
+    toast("Nao foi possivel autenticar sua conta Google no backend");
+    return;
+  }
+
   state.auth = normalizeAuth({
     ...state.auth,
     ...googleProfile,
     googleDriveFileId: state.auth.googleDriveFileId || googleProfile.googleDriveFileId,
     googleDriveModifiedTime: state.auth.googleDriveModifiedTime || googleProfile.googleDriveModifiedTime
   });
+  saveSession(state.auth.username, "google", authResult?.sessionToken || "");
   setActiveAppScreen("hub");
   await finalizeGoogleLogin();
 }
@@ -1782,16 +1880,39 @@ function getMonthDays(month) {
   return new Date(getCurrentYear(), monthIndex + 1, 0).getDate();
 }
 
-function getWeekBuckets(days) {
-  const buckets = [0, 0, 0, 0, 0];
+function getWeekBuckets(monthName, days) {
+  const monthIndex = getMonthIndexByName(monthName);
+  if (monthIndex < 0) return [];
+
+  const totalDays = getMonthDays(monthName);
+  const firstWeekday = new Date(getCurrentYear(), monthIndex, 1).getDay();
+  const ranges = [];
+  let startDay = 1;
+  let firstWeekLength = 7 - firstWeekday;
+  if (firstWeekLength <= 0 || firstWeekday === 0) firstWeekLength = 7;
+
+  while (startDay <= totalDays) {
+    const weekLength = ranges.length === 0 ? firstWeekLength : 7;
+    const endDay = Math.min(totalDays, startDay + weekLength - 1);
+    ranges.push({ startDay, endDay, total: 0 });
+    startDay = endDay + 1;
+  }
+
   days.forEach((day) => {
     const dayNumber = Number((day.d || "").split("/")[0]);
     if (!dayNumber) return;
-    const bucketIndex = Math.min(4, Math.floor((dayNumber - 1) / 7));
+    const bucket = ranges.find((item) => dayNumber >= item.startDay && dayNumber <= item.endDay);
+    if (!bucket) return;
     const dayTotal = getPlatforms().reduce((sum, platform) => sum + Number(day[platform.key] || 0), 0);
-    buckets[bucketIndex] += dayTotal;
+    bucket.total += dayTotal;
   });
-  return buckets;
+
+  return ranges.map((bucket, index) => ({
+    index,
+    total: bucket.total,
+    label: bucket.startDay === bucket.endDay ? `${bucket.startDay}` : `${bucket.startDay}-${bucket.endDay}`,
+    shortLabel: `${index + 1}a sem.`
+  }));
 }
 
 function getLoggedDays(month) {
@@ -1870,12 +1991,12 @@ function getPlatformFaviconUrl(platform) {
 function platformIcon(platform) {
   const faviconUrl = getPlatformFaviconUrl(platform);
   if (!faviconUrl) return "";
-  return `<span class="platform-icon"><img class="platform-favicon" src="${faviconUrl}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'"></span>`;
+  return `<span class="platform-icon"><img class="platform-favicon" src="${escapeAttribute(faviconUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'"></span>`;
 }
 
 function platformBadge(platform, shortName = false) {
   const label = shortName ? platform.name.split(" ")[0] : platform.name;
-  return `<span class="platform-badge">${platformIcon(platform)}<span>${label}</span></span>`;
+  return `<span class="platform-badge">${platformIcon(platform)}<span>${escapeHtml(label)}</span></span>`;
 }
 
 function destroyCharts() {
@@ -1951,23 +2072,21 @@ function renderAuthScreen() {
   const authModeSwitch = document.getElementById("authModeSwitch");
   const localFields = document.getElementById("authLocalFields");
   const submitButton = document.getElementById("authSubmitButton");
-  const needsPasswordSetup = hasExistingAuth && !state.auth?.password;
   const usesGoogleAuth = hasExistingAuth && authProvider === "google";
 
   if (usesGoogleAuth) {
     authMode = "login";
   } else {
-    if (!hasExistingAuth || needsPasswordSetup) authMode = "create";
-    if (hasExistingAuth && !needsPasswordSetup && authMode !== "create") authMode = "login";
+    authMode = hasExistingAuth ? "login" : "create";
   }
 
   createButton.classList.toggle("active", authMode === "create");
   loginButton.classList.toggle("active", authMode === "login");
-  loginButton.disabled = usesGoogleAuth || !hasExistingAuth || needsPasswordSetup;
-  createButton.disabled = usesGoogleAuth;
+  loginButton.disabled = usesGoogleAuth || !hasExistingAuth;
+  createButton.disabled = usesGoogleAuth || hasExistingAuth;
   usernameInput.disabled = usesGoogleAuth;
   passwordInput.disabled = usesGoogleAuth;
-  if (authModeSwitch) authModeSwitch.hidden = usesGoogleAuth;
+  if (authModeSwitch) authModeSwitch.hidden = usesGoogleAuth || hasExistingAuth;
   if (localFields) localFields.hidden = usesGoogleAuth;
 
   submitButton.disabled = usesGoogleAuth;
@@ -1977,19 +2096,17 @@ function renderAuthScreen() {
     document.getElementById("authTitle").textContent = "Entrar com Google";
     document.getElementById("authSubtitle").textContent = `Use a conta Google ${state.auth.googleEmail || state.auth.username} para acessar este dashboard.`;
   } else {
-    document.getElementById("authTitle").textContent = authMode === "create" ? (needsPasswordSetup ? "Criar senha local" : "Criar acesso") : "Fazer login";
+    document.getElementById("authTitle").textContent = authMode === "create" ? "Criar acesso" : "Fazer login";
     document.getElementById("authSubtitle").textContent = authMode === "create"
-      ? (needsPasswordSetup
-        ? "Defina uma senha local para continuar usando este dashboard e manter o backup no Google Drive."
-        : "Crie um acesso local simples para proteger seu dashboard nesta maquina.")
+      ? "Crie um acesso local simples para proteger seu dashboard nesta maquina."
       : "Use seu acesso local para entrar no dashboard.";
-    submitButton.textContent = authMode === "create" ? (needsPasswordSetup ? "Salvar senha" : "Criar acesso") : "Entrar";
+    submitButton.textContent = authMode === "create" ? "Criar acesso" : "Entrar";
   }
 
   if (!usesGoogleAuth && authMode === "create") {
-    usernameInput.readOnly = needsPasswordSetup;
-    usernameInput.value = needsPasswordSetup ? state.auth.username : "";
-    usernameInput.placeholder = needsPasswordSetup ? state.auth.username : "Seu usuario";
+    usernameInput.readOnly = false;
+    usernameInput.value = "";
+    usernameInput.placeholder = "Seu usuario";
   } else if (!usesGoogleAuth) {
     usernameInput.readOnly = true;
     usernameInput.value = state.auth.username;
@@ -2003,7 +2120,7 @@ function renderAuthScreen() {
   renderGoogleSignInButton();
 }
 
-function handleAuthSubmit() {
+async function handleAuthSubmit() {
   if (isGoogleAuth()) {
     toast("Use o botao do Google para entrar");
     return;
@@ -2016,34 +2133,66 @@ function handleAuthSubmit() {
   }
 
   if (authMode === "create") {
+    try {
+      const result = await readBackendJson("/api/auth/register", {
+        method: "POST",
+        requiresAuth: false,
+        body: JSON.stringify({ username, password })
+      });
+      state.auth = normalizeAuth({
+        provider: "local",
+        username,
+        googleDriveFileId: state.auth?.googleDriveFileId || "",
+        googleDriveModifiedTime: state.auth?.googleDriveModifiedTime || ""
+      });
+      saveState({ skipGoogleSync: true });
+      saveSession(username, "local", result.sessionToken || "");
+      setActiveAppScreen("hub");
+      toast("Acesso criado com sucesso");
+      await refreshGoogleDriveBackendStatus();
+      renderScreen();
+    } catch (error) {
+      toast(error?.message === "user_already_exists" ? "Esse usuario ja existe" : "Nao foi possivel criar o acesso");
+    }
+    return;
+  }
+
+  try {
+    const result = await readBackendJson("/api/auth/login", {
+      method: "POST",
+      requiresAuth: false,
+      body: JSON.stringify({ username, password })
+    });
     state.auth = normalizeAuth({
+      ...state.auth,
       provider: "local",
       username,
-      password,
-      googleDriveFileId: state.auth?.googleDriveFileId || "",
-      googleDriveModifiedTime: state.auth?.googleDriveModifiedTime || ""
+      password: ""
     });
-    saveState();
-    saveSession(username, "local");
+    saveState({ skipGoogleSync: true });
+    saveSession(username, "local", result.sessionToken || "");
     setActiveAppScreen("hub");
-    toast("Acesso criado com sucesso");
-    refreshGoogleDriveBackendStatus();
+    await refreshGoogleDriveBackendStatus();
     renderScreen();
-    return;
-  }
-
-  if (username !== state.auth.username || password !== state.auth.password) {
+  } catch (error) {
     toast("Usuario ou senha invalidos");
-    return;
   }
-
-  saveSession(username, "local");
-  setActiveAppScreen("hub");
-  refreshGoogleDriveBackendStatus();
-  renderScreen();
 }
 
-function handleLogout() {
+async function handleLogout() {
+  const serverSessionToken = getServerSessionToken();
+  if (serverSessionToken) {
+    try {
+      await readBackendJson("/api/auth/logout", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${serverSessionToken}`
+        }
+      });
+    } catch (error) {
+      console.warn("Falha ao encerrar sessao no backend:", error);
+    }
+  }
   clearSession();
   clearCachedGoogleToken();
   resetGoogleDriveBackendStatus();
@@ -2066,13 +2215,13 @@ function renderSetupScreen() {
       <div class="setup-item-main">
         ${platformIcon(platform)}
         <div class="setup-item-copy">
-          <strong>${platform.name}</strong>
+          <strong>${escapeHtml(platform.name)}</strong>
           <span>Sigla ${platform.icon} · ${platform.color}</span>
         </div>
       </div>
       <div class="setup-item-actions">
-        <button class="btn btn-secondary" data-edit-platform="${platform.key}" type="button">Editar</button>
-        <button class="btn btn-secondary setup-remove" data-remove-platform="${platform.key}" type="button">Remover</button>
+        <button class="btn btn-secondary" data-edit-platform="${escapeAttribute(platform.key)}" type="button">Editar</button>
+        <button class="btn btn-secondary setup-remove" data-remove-platform="${escapeAttribute(platform.key)}" type="button">Remover</button>
       </div>
     </div>
   `).join("");
@@ -2501,23 +2650,29 @@ function renderDonut() {
     const percent = total > 0 ? (value / total) * 100 : 0;
     const tone = getPlatformTone(platform);
     const visualColor = getPlatformVisualColor(platform);
-    return `<div class="dleg-item"><div class="dleg-l"><div class="dleg-dot" style="background:${visualColor};border-color:${tone.softBorder}"></div><span>${platform.name}</span></div><div style="text-align:right"><span class="dleg-pct" style="color:${tone.text}">${percent.toFixed(1)}%</span><div class="dleg-bar"><div class="dleg-fill" style="width:${percent}%;background:${visualColor}"></div></div></div></div>`;
+    return `<div class="dleg-item"><div class="dleg-l"><div class="dleg-dot" style="background:${visualColor};border-color:${tone.softBorder}"></div><span>${escapeHtml(platform.name)}</span></div><div style="text-align:right"><span class="dleg-pct" style="color:${tone.text}">${percent.toFixed(1)}%</span><div class="dleg-bar"><div class="dleg-fill" style="width:${percent}%;background:${visualColor}"></div></div></div></div>`;
   }).join("");
 }
 
 function renderWeekly() {
-  const weekly = getWeekBuckets(state.db[state.currentMonth].days);
+  const weekly = getWeekBuckets(state.currentMonth, state.db[state.currentMonth].days);
   const previousName = prevMonth(state.currentMonth);
-  const previousWeekly = previousName && state.db[previousName] ? getWeekBuckets(state.db[previousName].days) : [];
-  const total = weekly.reduce((sum, value) => sum + value, 0);
-  const max = Math.max(...weekly, 1);
-  const colors = ["#e8ff47", "#47d4ff", "#a78bfa", "#34d399", "#fb923c"];
+  const previousWeekly = previousName && state.db[previousName]
+    ? getWeekBuckets(previousName, state.db[previousName].days)
+    : [];
+  const total = weekly.reduce((sum, item) => sum + item.total, 0);
+  const max = Math.max(...weekly.map((item) => item.total), 1);
+  const colors = ["#e8ff47", "#47d4ff", "#a78bfa", "#34d399", "#fb923c", "#f472b6"];
+  const weekBars = document.getElementById("weekBars");
+  weekBars.style.gridTemplateColumns = `repeat(${Math.max(weekly.length, 1)}, minmax(0,1fr))`;
 
-  document.getElementById("weekBars").innerHTML = weekly.map((value, index) => {
+  weekBars.innerHTML = weekly.map((item, index) => {
+    const value = item.total;
     const percent = total > 0 ? (value / total) * 100 : 0;
-    const previousValue = previousWeekly[index];
+    const previousValue = previousWeekly[index]?.total || 0;
     const comparison = previousName ? varH(value, previousValue) : "";
-    return `<div class="wbwrap"><div class="wblabel">${index + 1}a sem.</div><div class="wbcon"><div class="wbar" style="height:${value > 0 ? Math.max(7, (value / max) * 100) : 0}%;background:${colors[index]};opacity:${value > 0 ? 1 : .15}"></div></div><div class="wbval" style="color:${colors[index]}">${value > 0 ? RS(value) : "-"}</div><div class="wbpct">${value > 0 ? `${percent.toFixed(1)}%` : ""}</div><div class="wbdelta">${comparison || dash}</div></div>`;
+    const color = colors[index % colors.length];
+    return `<div class="wbwrap"><div class="wblabel">${item.shortLabel}</div><div class="wbpct">${escapeHtml(item.label)}</div><div class="wbcon"><div class="wbar" style="height:${value > 0 ? Math.max(7, (value / max) * 100) : 0}%;background:${color};opacity:${value > 0 ? 1 : .15}"></div></div><div class="wbval" style="color:${color}">${value > 0 ? RS(value) : "-"}</div><div class="wbpct">${value > 0 ? `${percent.toFixed(1)}%` : ""}</div><div class="wbdelta">${comparison || dash}</div></div>`;
   }).join("");
 }
 
@@ -2533,7 +2688,7 @@ function renderBestDays() {
 
   const html = getPlatforms()
     .filter((platform) => best[platform.key] && best[platform.key].v > 0)
-    .map((platform) => `<div class="bdrow"><div class="bdl"><div class="pdot" style="background:${getPlatformVisualColor(platform)}"></div>${platform.name}</div><div class="bdr"><div class="bdval">${RS(best[platform.key].v)}</div><div class="bddate">${best[platform.key].d}</div></div></div>`)
+    .map((platform) => `<div class="bdrow"><div class="bdl"><div class="pdot" style="background:${getPlatformVisualColor(platform)}"></div>${escapeHtml(platform.name)}</div><div class="bdr"><div class="bdval">${RS(best[platform.key].v)}</div><div class="bddate">${escapeHtml(best[platform.key].d)}</div></div></div>`)
     .join("");
   document.getElementById("bestDayGrid").innerHTML = html || `<div class="empty-state">Ainda nao ha dias destacados.</div>`;
 }
@@ -2616,8 +2771,8 @@ function renderMonthCompare() {
 function renderSaleInputs() {
   document.getElementById("saleInputs").innerHTML = getPlatforms().map((platform) => `
     <div class="fg">
-      <label class="flabel" for="sale_${platform.key}" style="color:${getReadablePlatformColor(platform.color)}">${platform.name}</label>
-      <input type="number" class="finput" id="sale_${platform.key}" placeholder="0,00" step="0.01" min="0">
+      <label class="flabel" for="sale_${escapeAttribute(platform.key)}" style="color:${getReadablePlatformColor(platform.color)}">${escapeHtml(platform.name)}</label>
+      <input type="number" class="finput" id="sale_${escapeAttribute(platform.key)}" placeholder="0,00" step="0.01" min="0">
     </div>
   `).join("");
 }
@@ -2628,8 +2783,8 @@ function renderReturnInputs() {
   const returns = state.db[month].returns || {};
   document.getElementById("returnInputs").innerHTML = getPlatforms().map((platform) => `
     <div class="fg">
-      <label class="flabel" for="ret_${platform.key}" style="color:${getReadablePlatformColor(platform.color)}">${platform.name}</label>
-      <input type="number" class="finput" id="ret_${platform.key}" value="${Number(returns[platform.key] || 0).toFixed(2)}" step="0.01" min="0">
+      <label class="flabel" for="ret_${escapeAttribute(platform.key)}" style="color:${getReadablePlatformColor(platform.color)}">${escapeHtml(platform.name)}</label>
+      <input type="number" class="finput" id="ret_${escapeAttribute(platform.key)}" value="${Number(returns[platform.key] || 0).toFixed(2)}" step="0.01" min="0">
     </div>
   `).join("");
 }
@@ -2875,7 +3030,7 @@ function openDailyDetailsModal() {
   document.getElementById("dailyDetailsModal").classList.add("open");
 }
 
-function saveChangedPassword() {
+async function saveChangedPassword() {
   if (!isLocalAuth()) {
     toast("A conta Google nao usa senha local");
     return;
@@ -2892,10 +3047,6 @@ function saveChangedPassword() {
     toast("Preencha todos os campos");
     return;
   }
-  if (currentPassword !== state.auth.password) {
-    toast("Senha atual incorreta");
-    return;
-  }
   if (newPassword.length < 4) {
     toast("Use pelo menos 4 caracteres");
     return;
@@ -2905,10 +3056,27 @@ function saveChangedPassword() {
     return;
   }
 
-  state.auth.password = newPassword;
-  saveState();
-  closeModal("changePasswordModal");
-  toast("Senha atualizada com sucesso");
+  try {
+    await readBackendJson("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({
+        username: state.auth.username,
+        currentPassword,
+        newPassword
+      })
+    });
+    state.auth = normalizeAuth({
+      ...state.auth,
+      password: ""
+    });
+    saveState({ skipGoogleSync: true });
+    closeModal("changePasswordModal");
+    toast("Senha atualizada com sucesso");
+  } catch (error) {
+    toast(error?.message === "invalid_current_password"
+      ? "Senha atual incorreta"
+      : "Nao foi possivel atualizar a senha");
+  }
 }
 
 function openReport() {
@@ -3072,10 +3240,11 @@ function applyImportedBackup(payload, mode = "merge") {
   saveState();
   saveTheme();
   if (previousSession && state.auth?.username === previousSession.username && (state.auth?.provider || "local") === previousSession.provider) {
-    saveSession(previousSession.username, previousSession.provider);
+    saveSession(previousSession.username, previousSession.provider, previousSession.serverSessionToken || "");
   }
   applyTheme();
   renderScreen();
+  void migrateLegacyLocalAuthIfNeeded();
 }
 
 function updatePricingValue(field, value) {
@@ -3294,6 +3463,7 @@ function init() {
   renderGoogleUi();
   renderScreen();
   refreshGoogleDriveBackendStatus();
+  void migrateLegacyLocalAuthIfNeeded();
   restoreGoogleDriveOnSessionStart();
 }
 

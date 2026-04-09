@@ -15,6 +15,7 @@ const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 const GOOGLE_DRIVE_FILE_NAME = "dashboard-vendas-state.json";
 const TOKEN_STORE_FILE = path.join(__dirname, ".data", "google-drive-connections.json");
 const SESSION_STORE_FILE = path.join(__dirname, ".data", "sessions.json");
+const USER_STORE_FILE = path.join(__dirname, ".data", "users.json");
 const CALLBACK_HTML_TITLE = "Google Drive conectado";
 const FETCH_TIMEOUT_MS = 15_000;
 
@@ -38,6 +39,8 @@ const STATIC_FILES = new Map([
 const pendingOAuthStates = new Map(); // state -> { username, createdAt }
 let tokenStoreLock = false;
 let tokenStoreLockQueue = [];
+let userStoreLock = false;
+let userStoreLockQueue = [];
 
 // ─── Logger ───────────────────────────────────────────────────────────────────
 const logger = {
@@ -86,6 +89,26 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function acquireUserStoreLock() {
+  return new Promise((resolve) => {
+    if (!userStoreLock) {
+      userStoreLock = true;
+      resolve();
+    } else {
+      userStoreLockQueue.push(resolve);
+    }
+  });
+}
+
+function releaseUserStoreLock() {
+  if (userStoreLockQueue.length > 0) {
+    const next = userStoreLockQueue.shift();
+    next();
+  } else {
+    userStoreLock = false;
+  }
 }
 
 // ─── Token store with mutex ───────────────────────────────────────────────────
@@ -140,6 +163,58 @@ async function saveUserConnection(username, connection) {
   } finally {
     releaseTokenStoreLock();
   }
+}
+
+function readUserStore() {
+  ensureDataDir();
+  if (!fs.existsSync(USER_STORE_FILE)) return { users: {} };
+  try {
+    return JSON.parse(fs.readFileSync(USER_STORE_FILE, "utf8"));
+  } catch {
+    return { users: {} };
+  }
+}
+
+function writeUserStore(store) {
+  ensureDataDir();
+  fs.writeFileSync(USER_STORE_FILE, JSON.stringify(store, null, 2));
+}
+
+function getUserRecord(username) {
+  if (!username) return null;
+  const store = readUserStore();
+  return store.users?.[username] || null;
+}
+
+async function saveUserRecord(username, userRecord) {
+  await acquireUserStoreLock();
+  try {
+    const store = readUserStore();
+    if (!store.users) store.users = {};
+    store.users[username] = userRecord;
+    writeUserStore(store);
+  } finally {
+    releaseUserStoreLock();
+  }
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derived = crypto.scryptSync(String(password || ""), salt, 64).toString("hex");
+  return `scrypt:${salt}:${derived}`;
+}
+
+function verifyPassword(password, passwordHash) {
+  const [scheme, salt, storedHash] = String(passwordHash || "").split(":");
+  if (scheme !== "scrypt" || !salt || !storedHash) return false;
+  const candidate = crypto.scryptSync(String(password || ""), salt, 64);
+  const expected = Buffer.from(storedHash, "hex");
+  if (candidate.length !== expected.length) return false;
+  return crypto.timingSafeEqual(candidate, expected);
+}
+
+function isValidGoogleIssuer(value) {
+  return value === "accounts.google.com" || value === "https://accounts.google.com";
 }
 
 // ─── Session store ────────────────────────────────────────────────────────────
@@ -295,10 +370,14 @@ async function readJsonBody(req) {
 }
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
-function extractSessionToken(req) {
+function extractSessionToken(req, url = null) {
   // Accept token from Authorization header: "Bearer <token>"
   const auth = String(req.headers["authorization"] || "");
   if (auth.startsWith("Bearer ")) return auth.slice(7).trim();
+  if (url) {
+    const tokenFromQuery = String(url.searchParams.get("sessionToken") || "").trim();
+    if (tokenFromQuery) return tokenFromQuery;
+  }
   return null;
 }
 
@@ -546,19 +625,178 @@ async function handleAuthLogin(req, res) {
     sendJson(res, 400, { error: "username_and_password_required" });
     return;
   }
-  // The app stores a hashed password in localStorage (client-side). For the backend
-  // session we trust the client's own auth: if it sends valid credentials we issue
-  // a server-side session token. Production apps should store the hash server-side.
-  // This hook exists so that future server-side auth can be plugged in here.
+  const user = getUserRecord(username);
+  if (!user || user.provider !== "local" || !verifyPassword(password, user.passwordHash)) {
+    sendJson(res, 401, { error: "invalid_credentials" });
+    return;
+  }
   const token = createSession(username);
   logger.info("Session created", { username });
   sendJson(res, 200, { sessionToken: token });
+}
+
+// POST /api/auth/register  { username, password }  → { sessionToken }
+async function handleAuthRegister(req, res) {
+  const body = await readJsonBody(req);
+  const username = String(body?.username || "").trim();
+  const password = String(body?.password || "");
+  if (!username || !password) {
+    sendJson(res, 400, { error: "username_and_password_required" });
+    return;
+  }
+  if (password.length < 4) {
+    sendJson(res, 400, { error: "password_too_short" });
+    return;
+  }
+  if (getUserRecord(username)) {
+    sendJson(res, 409, { error: "user_already_exists" });
+    return;
+  }
+
+  await saveUserRecord(username, {
+    provider: "local",
+    passwordHash: hashPassword(password),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const token = createSession(username);
+  logger.info("Local user created", { username });
+  sendJson(res, 201, { sessionToken: token });
+}
+
+// POST /api/auth/migrate-local  { username, password }  → { ok }
+async function handleAuthMigrateLocal(req, res) {
+  const body = await readJsonBody(req);
+  const username = String(body?.username || "").trim();
+  const password = String(body?.password || "");
+  if (!username || !password) {
+    sendJson(res, 400, { error: "username_and_password_required" });
+    return;
+  }
+  const existing = getUserRecord(username);
+  if (!existing) {
+    await saveUserRecord(username, {
+      provider: "local",
+      passwordHash: hashPassword(password),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    logger.info("Legacy local auth migrated", { username });
+    sendJson(res, 200, { ok: true, migrated: true });
+    return;
+  }
+  if (existing.provider !== "local") {
+    sendJson(res, 409, { error: "provider_mismatch" });
+    return;
+  }
+  if (!verifyPassword(password, existing.passwordHash)) {
+    sendJson(res, 409, { error: "migration_password_mismatch" });
+    return;
+  }
+  sendJson(res, 200, { ok: true, migrated: false });
+}
+
+// POST /api/auth/google-login  { credential }  → { sessionToken, username }
+async function handleGoogleAuthLogin(req, res) {
+  const body = await readJsonBody(req);
+  const credential = String(body?.credential || "").trim();
+  if (!credential) {
+    sendJson(res, 400, { error: "credential_required" });
+    return;
+  }
+
+  const payload = decodeJwtPayload(credential);
+  const username = String(payload?.email || "").trim();
+  const googleSub = String(payload?.sub || "").trim();
+  const audience = String(payload?.aud || "").trim();
+  const issuer = String(payload?.iss || "").trim();
+  const expiresAt = Number(payload?.exp || 0) * 1000;
+
+  if (!username || !googleSub || payload?.email_verified === false) {
+    sendJson(res, 401, { error: "invalid_google_credential" });
+    return;
+  }
+  if (!isValidGoogleIssuer(issuer)) {
+    sendJson(res, 401, { error: "invalid_google_issuer" });
+    return;
+  }
+  if (GOOGLE_CLIENT_ID && audience !== GOOGLE_CLIENT_ID) {
+    sendJson(res, 401, { error: "invalid_google_audience" });
+    return;
+  }
+  if (!expiresAt || Date.now() >= expiresAt) {
+    sendJson(res, 401, { error: "expired_google_credential" });
+    return;
+  }
+
+  const existing = getUserRecord(username);
+  if (existing && existing.provider !== "google") {
+    sendJson(res, 409, { error: "provider_mismatch" });
+    return;
+  }
+  if (existing?.googleSub && existing.googleSub !== googleSub) {
+    sendJson(res, 403, { error: "google_account_mismatch" });
+    return;
+  }
+
+  await saveUserRecord(username, {
+    provider: "google",
+    googleSub,
+    googleEmail: username,
+    googleName: String(payload?.name || existing?.googleName || username),
+    googlePicture: String(payload?.picture || existing?.googlePicture || ""),
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const token = createSession(username);
+  logger.info("Google user session created", { username });
+  sendJson(res, 200, { sessionToken: token, username });
 }
 
 // POST /api/auth/logout
 async function handleAuthLogout(req, res) {
   const token = extractSessionToken(req);
   if (token) deleteSession(token);
+  sendJson(res, 200, { ok: true });
+}
+
+// POST /api/auth/change-password  { username, currentPassword, newPassword }
+async function handleAuthChangePassword(req, res, authenticatedUser) {
+  const body = await readJsonBody(req);
+  const username = String(body?.username || "").trim();
+  const currentPassword = String(body?.currentPassword || "");
+  const newPassword = String(body?.newPassword || "");
+
+  if (!username || !currentPassword || !newPassword) {
+    sendJson(res, 400, { error: "username_current_and_new_password_required" });
+    return;
+  }
+  if (authenticatedUser !== username) {
+    sendJson(res, 403, { error: "forbidden" });
+    return;
+  }
+  if (newPassword.length < 4) {
+    sendJson(res, 400, { error: "password_too_short" });
+    return;
+  }
+
+  const user = getUserRecord(username);
+  if (!user || user.provider !== "local") {
+    sendJson(res, 404, { error: "local_user_not_found" });
+    return;
+  }
+  if (!verifyPassword(currentPassword, user.passwordHash)) {
+    sendJson(res, 401, { error: "invalid_current_password" });
+    return;
+  }
+
+  await saveUserRecord(username, {
+    ...user,
+    passwordHash: hashPassword(newPassword),
+    updatedAt: new Date().toISOString(),
+  });
   sendJson(res, 200, { ok: true });
 }
 
@@ -779,8 +1017,20 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // ── Auth routes (no session required) ──────────────────────────────────
+    if (req.method === "POST" && url.pathname === "/api/auth/register") {
+      await handleAuthRegister(req, res);
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/auth/login") {
       await handleAuthLogin(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/auth/migrate-local") {
+      await handleAuthMigrateLocal(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/auth/google-login") {
+      await handleGoogleAuthLogin(req, res);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/auth/logout") {
@@ -801,8 +1051,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ── Protected routes: validate session ─────────────────────────────────
-    const sessionToken = extractSessionToken(req);
+    const sessionToken = extractSessionToken(req, url);
     const authenticatedUser = validateSession(sessionToken);
+
+    if (req.method === "POST" && url.pathname === "/api/auth/change-password") {
+      if (!authenticatedUser) { sendJson(res, 401, { error: "unauthorized" }); return; }
+      await handleAuthChangePassword(req, res, authenticatedUser);
+      return;
+    }
 
     if (req.method === "GET" && url.pathname === "/api/google-drive/connect") {
       if (!authenticatedUser) { sendJson(res, 401, { error: "unauthorized" }); return; }
