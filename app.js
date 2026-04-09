@@ -1116,7 +1116,7 @@ function renderGoogleUi() {
     } else if (googleDriveBackendStatus.available && !googleDriveBackendStatus.configured) {
       googleHint.textContent = "Configure o arquivo .env do backend com GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET para liberar o Google Drive.";
     } else if (!googleReady) {
-      googleHint.textContent = "Edite google-config.js com o Client ID OAuth Web da sua conta Google Cloud para usar login e backup no Google.";
+      googleHint.textContent = "Configure GOOGLE_CLIENT_ID no backend para liberar o login e o backup com Google.";
     } else if (!googleOriginReady) {
       googleHint.textContent = "Abra este dashboard em https ou em http://localhost para usar login com Google. O protocolo file:// nao e aceito pelo Google.";
     } else if (driveAvailable) {

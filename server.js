@@ -958,10 +958,26 @@ function getContentType(filePath) {
   return types[ext] || "application/octet-stream";
 }
 
+function buildGoogleConfigScript() {
+  const config = {
+    clientId: GOOGLE_CLIENT_ID,
+    backendBaseUrl: "",
+  };
+  return `window.DASHBOARD_GOOGLE_CONFIG = Object.assign({}, window.DASHBOARD_GOOGLE_CONFIG || {}, ${JSON.stringify(config, null, 2)});\n`;
+}
+
 function serveStatic(req, res, url) {
   const mapped = STATIC_FILES.get(url.pathname);
   if (!mapped) {
     sendText(res, 404, "Not found");
+    return;
+  }
+  if (url.pathname === "/google-config.js") {
+    res.writeHead(200, {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    res.end(buildGoogleConfigScript());
     return;
   }
   const filePath = path.join(__dirname, mapped);
