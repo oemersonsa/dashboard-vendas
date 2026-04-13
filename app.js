@@ -477,6 +477,9 @@ function mergeImportedState(restoredState) {
       }
 
       const existingDay = daysByDate.get(importedDay.d);
+      const currentOrders = Math.max(0, Math.round(Number(existingDay.orders || 0)));
+      const importedOrders = Math.max(0, Math.round(Number(importedDay.orders || 0)));
+      if (currentOrders === 0 && importedOrders > 0) existingDay.orders = importedOrders;
       state.platforms.forEach((platform) => {
         const currentValue = Number(existingDay[platform.key] || 0);
         const importedValue = Number(importedDay[platform.key] || 0);
@@ -536,7 +539,11 @@ function ensureMonthData(month) {
 }
 
 function normalizeDay(day = {}, platforms = getPlatforms()) {
-  const normalized = { d: day.d || "" };
+  const orderValue = day.orders ?? day.pedidos ?? 0;
+  const normalized = {
+    d: day.d || "",
+    orders: Math.max(0, Math.round(Number(orderValue || 0)))
+  };
   platforms.forEach((platform) => {
     normalized[platform.key] = Number(day[platform.key] || 0);
   });
@@ -1928,13 +1935,14 @@ function calcTotals(month) {
   getPlatforms().forEach((platform) => {
     sales[platform.key] = data.days.reduce((sum, day) => sum + Number(day[platform.key] || 0), 0);
   });
+  const orders = data.days.reduce((sum, day) => sum + Math.max(0, Math.round(Number(day.orders || 0))), 0);
   const ret = {};
   getPlatforms().forEach((platform) => {
     ret[platform.key] = Number((data.returns || {})[platform.key] || 0);
   });
   const gross = getPlatforms().reduce((sum, platform) => sum + Number(sales[platform.key] || 0), 0);
   const totalRet = getPlatforms().reduce((sum, platform) => sum + Number(ret[platform.key] || 0), 0);
-  return { sales, ret, gross, totalRet, net: gross - totalRet };
+  return { sales, ret, gross, totalRet, net: gross - totalRet, orders };
 }
 
 function calcProjection(month) {
@@ -1943,15 +1951,19 @@ function calcProjection(month) {
   const loggedDays = getLoggedDays(month);
   const monthDays = getMonthDays(month);
   const salesDailyAverage = loggedDays > 0 ? totals.gross / loggedDays : 0;
+  const ordersDailyAverage = loggedDays > 0 ? totals.orders / loggedDays : 0;
   const returnsDailyAverage = loggedDays > 0 ? totals.totalRet / loggedDays : 0;
   const projectedGross = salesDailyAverage * monthDays;
+  const projectedOrders = ordersDailyAverage * monthDays;
   const projectedReturns = returnsDailyAverage * monthDays;
   return {
     loggedDays,
     monthDays,
     salesDailyAverage,
+    ordersDailyAverage,
     returnsDailyAverage,
     projectedGross,
+    projectedOrders,
     projectedReturns,
     projectedNet: projectedGross - projectedReturns,
     currentReturnRate: getReturnRate(totals.totalRet, totals.gross),
@@ -2489,6 +2501,7 @@ function renderKPIs() {
   document.getElementById("kpiRow").innerHTML = `
     <div class="kpi-card"><div class="kpi-label">Faturamento Bruto</div><div class="kpi-value">${RS(totals.gross)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.gross, previousTotals.gross)} vs ${previousName}` : state.currentMonth}</div></div>
     <div class="kpi-card"><div class="kpi-label">Faturamento Liquido</div><div class="kpi-value">${RS(totals.net)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.net, previousTotals.net)} vs ${previousName}` : dash}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value">${totals.orders}</div><div class="kpi-change">${previousTotals ? `${varH(totals.orders, previousTotals.orders)} vs ${previousName}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${totals.orders > 0 ? `${RS(totals.gross / totals.orders)} por pedido` : "Sem pedidos lancados"}</div></div>
     <div class="kpi-card"><div class="kpi-label">Devolucoes</div><div class="kpi-value">${RS(totals.totalRet)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.totalRet, previousTotals.totalRet)} vs ${previousName}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${returnsPercent.toFixed(1)}% das vendas</div><div class="returns-bar"><div class="returns-fill" style="width:${Math.min(returnsPercent, 100)}%"></div></div></div>
     <div class="kpi-card"><div class="kpi-label">Plataformas Ativas</div><div class="kpi-value">${getPlatforms().filter((platform) => totals.sales[platform.key] > 0).length}</div><div class="kpi-change" style="color:var(--muted)">de ${getPlatforms().length} cadastradas</div></div>
   `;
@@ -2571,16 +2584,18 @@ function renderDailyTable() {
     totals[platform.key] = data.days.reduce((sum, day) => sum + Number(day[platform.key] || 0), 0);
   });
   const grandTotal = active.reduce((sum, platform) => sum + totals[platform.key], 0);
+  const totalOrders = data.days.reduce((sum, day) => sum + Math.max(0, Math.round(Number(day.orders || 0))), 0);
 
-  const head = `<thead><tr><th>Data</th>${active.map((platform) => `<th><span class="chdot" style="background:${getPlatformVisualColor(platform)}"></span>${platform.icon}</th>`).join("")}<th>Total</th></tr></thead>`;
+  const head = `<thead><tr><th>Data</th>${active.map((platform) => `<th><span class="chdot" style="background:${getPlatformVisualColor(platform)}"></span>${platform.icon}</th>`).join("")}<th>Pedidos</th><th>Total</th></tr></thead>`;
   const body = data.days.map((day, dayIndex) => {
     const rowTotal = active.reduce((sum, platform) => sum + Number(day[platform.key] || 0), 0);
+    const rowOrders = Math.max(0, Math.round(Number(day.orders || 0)));
     return `<tr><td>${day.d}</td>${active.map((platform) => {
       const value = Number(day[platform.key] || 0);
       return `<td><span class="ceditable${value === 0 ? " czero" : ""}" contenteditable="true" data-day-index="${dayIndex}" data-platform-key="${platform.key}">${value === 0 ? "-" : value.toFixed(2)}</span></td>`;
-    }).join("")}<td style="color:var(--muted2);font-size:11px">${rowTotal > 0 ? RS(rowTotal) : "-"}</td></tr>`;
+    }).join("")}<td><span class="ceditable${rowOrders === 0 ? " czero" : ""}" contenteditable="true" data-day-index="${dayIndex}" data-platform-key="orders">${rowOrders === 0 ? "-" : rowOrders}</span></td><td style="color:var(--muted2);font-size:11px">${rowTotal > 0 ? RS(rowTotal) : "-"}</td></tr>`;
   }).join("");
-  const foot = `<tfoot><tr><td>Total</td>${active.map((platform) => `<td>${RS(totals[platform.key])}</td>`).join("")}<td>${RS(grandTotal)}</td></tr></tfoot>`;
+  const foot = `<tfoot><tr><td>Total</td>${active.map((platform) => `<td>${RS(totals[platform.key])}</td>`).join("")}<td>${totalOrders}</td><td>${RS(grandTotal)}</td></tr></tfoot>`;
   document.getElementById("dailyDetailsTable").innerHTML = head + body + foot;
 }
 
@@ -2593,7 +2608,8 @@ function selectAll(el) {
 }
 
 function updateCell(dayIndex, key, el) {
-  const value = parseFloat((el.textContent || "").replace(/[^0-9.,]/g, "").replace(",", ".")) || 0;
+  const rawValue = parseFloat((el.textContent || "").replace(/[^0-9.,]/g, "").replace(",", ".")) || 0;
+  const value = key === "orders" ? Math.max(0, Math.round(rawValue)) : rawValue;
   state.db[state.currentMonth].days[dayIndex][key] = value;
   state.db[state.currentMonth].days = sortDays(state.db[state.currentMonth].days);
   saveState();
@@ -2802,6 +2818,12 @@ function renderProjection() {
       <div class="projection-sub">Base usada para a media do mes</div>
     </div>
     <div class="projection-card">
+      <div class="projection-label">Projecao de Pedidos</div>
+      <div class="projection-value">${Math.round(projection.projectedOrders)}</div>
+      <div class="projection-sub">Media diaria: ${projection.ordersDailyAverage.toFixed(1)} pedidos</div>
+      <div class="projection-meta">Realizado ate agora: ${totals.orders} pedidos</div>
+    </div>
+    <div class="projection-card">
       <div class="projection-label">Projecao de Vendas</div>
       <div class="projection-value">${RS(projection.projectedGross)}</div>
       <div class="projection-sub">Media diaria: ${RS(projection.salesDailyAverage)}</div>
@@ -2867,6 +2889,7 @@ function switchTab(name) {
 function addSale() {
   const month = document.getElementById("inputMonth").value;
   const dateValue = document.getElementById("inputDate").value;
+  const ordersValue = Math.max(0, Math.round(parseFloat(document.getElementById("inputOrders")?.value || 0) || 0));
   if (!dateValue) {
     toast("Selecione a data");
     return;
@@ -2886,7 +2909,7 @@ function addSale() {
     return;
   }
   const label = `${parts[2]}/${parts[1]}`;
-  const entry = { d: label };
+  const entry = { d: label, orders: ordersValue };
   let hasAnyValue = false;
 
   getPlatforms().forEach((platform) => {
@@ -2905,6 +2928,7 @@ function addSale() {
     getPlatforms().forEach((platform) => {
       state.db[month].days[existingIndex][platform.key] = Number(state.db[month].days[existingIndex][platform.key] || 0) + Number(entry[platform.key] || 0);
     });
+    state.db[month].days[existingIndex].orders = Math.max(0, Math.round(Number(state.db[month].days[existingIndex].orders || 0) + Number(entry.orders || 0)));
   } else {
     state.db[month].days.push(normalizeDay(entry));
     state.db[month].days = sortDays(state.db[month].days);
@@ -2921,6 +2945,8 @@ function clearSale() {
     const el = document.getElementById(`sale_${platform.key}`);
     if (el) el.value = "";
   });
+  const ordersInput = document.getElementById("inputOrders");
+  if (ordersInput) ordersInput.value = "";
 }
 
 function saveReturns() {
@@ -3108,6 +3134,7 @@ function openReport() {
   document.getElementById("reportContent").innerHTML = `
     <div class="rkpis">
       <div class="rkpi"><div class="rkpi-label">Faturamento Bruto</div><div class="rkpi-val">${R(totals.gross)}</div><div class="rkpi-sub">${previousTotals ? varH(totals.gross, previousTotals.gross) : ""}</div></div>
+      <div class="rkpi"><div class="rkpi-label">Pedidos</div><div class="rkpi-val">${totals.orders}</div><div class="rkpi-sub">${totals.orders > 0 ? `${RS(totals.gross / totals.orders)} por pedido` : "Sem pedidos lancados"}</div></div>
       <div class="rkpi"><div class="rkpi-label">Devolucoes</div><div class="rkpi-val neg">${R(totals.totalRet)}</div><div class="rkpi-sub" style="color:var(--muted)">${totals.gross > 0 ? ((totals.totalRet / totals.gross) * 100).toFixed(1) : 0}% do bruto</div></div>
       <div class="rkpi" style="border:1px solid rgba(232,255,71,.25)"><div class="rkpi-label">Faturamento Liquido</div><div class="rkpi-val" style="color:var(--accent)">${R(totals.net)}</div><div class="rkpi-sub">${previousTotals ? varH(totals.net, previousTotals.net) : ""}</div></div>
     </div>
