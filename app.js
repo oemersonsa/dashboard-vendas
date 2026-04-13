@@ -477,13 +477,14 @@ function mergeImportedState(restoredState) {
       }
 
       const existingDay = daysByDate.get(importedDay.d);
-      const currentOrders = Math.max(0, Math.round(Number(existingDay.orders || 0)));
-      const importedOrders = Math.max(0, Math.round(Number(importedDay.orders || 0)));
-      if (currentOrders === 0 && importedOrders > 0) existingDay.orders = importedOrders;
       state.platforms.forEach((platform) => {
         const currentValue = Number(existingDay[platform.key] || 0);
         const importedValue = Number(importedDay[platform.key] || 0);
         if (currentValue === 0 && importedValue > 0) existingDay[platform.key] = importedValue;
+        const ordersKey = `orders_${platform.key}`;
+        const currentOrders = Math.max(0, Math.round(Number(existingDay[ordersKey] || 0)));
+        const importedOrders = Math.max(0, Math.round(Number(importedDay[ordersKey] || 0)));
+        if (currentOrders === 0 && importedOrders > 0) existingDay[ordersKey] = importedOrders;
       });
     });
 
@@ -539,13 +540,22 @@ function ensureMonthData(month) {
 }
 
 function normalizeDay(day = {}, platforms = getPlatforms()) {
-  const orderValue = day.orders ?? day.pedidos ?? 0;
   const normalized = {
-    d: day.d || "",
-    orders: Math.max(0, Math.round(Number(orderValue || 0)))
+    d: day.d || ""
   };
+  // legacy global orders field — distribute to first platform that has sales, if no per-platform data exists
+  const legacyOrders = Math.max(0, Math.round(Number(day.orders ?? day.pedidos ?? 0)));
+  const hasAnyPerPlatformOrders = platforms.some((p) => Number(day[`orders_${p.key}`] || 0) > 0);
+  const firstActivePlatform = platforms.find((p) => Number(day[p.key] || 0) > 0) || platforms[0];
   platforms.forEach((platform) => {
     normalized[platform.key] = Number(day[platform.key] || 0);
+    const ordersKey = `orders_${platform.key}`;
+    let ordersVal = Math.max(0, Math.round(Number(day[ordersKey] || 0)));
+    // migrate legacy once
+    if (!hasAnyPerPlatformOrders && legacyOrders > 0 && firstActivePlatform && platform.key === firstActivePlatform.key) {
+      ordersVal = legacyOrders;
+    }
+    normalized[ordersKey] = ordersVal;
   });
   return normalized;
 }
@@ -1935,14 +1945,18 @@ function calcTotals(month) {
   getPlatforms().forEach((platform) => {
     sales[platform.key] = data.days.reduce((sum, day) => sum + Number(day[platform.key] || 0), 0);
   });
-  const orders = data.days.reduce((sum, day) => sum + Math.max(0, Math.round(Number(day.orders || 0))), 0);
+  const ordersByPlatform = {};
+  getPlatforms().forEach((platform) => {
+    ordersByPlatform[platform.key] = data.days.reduce((sum, day) => sum + Math.max(0, Math.round(Number(day[`orders_${platform.key}`] || 0))), 0);
+  });
+  const orders = getPlatforms().reduce((sum, platform) => sum + (ordersByPlatform[platform.key] || 0), 0);
   const ret = {};
   getPlatforms().forEach((platform) => {
     ret[platform.key] = Number((data.returns || {})[platform.key] || 0);
   });
   const gross = getPlatforms().reduce((sum, platform) => sum + Number(sales[platform.key] || 0), 0);
   const totalRet = getPlatforms().reduce((sum, platform) => sum + Number(ret[platform.key] || 0), 0);
-  return { sales, ret, gross, totalRet, net: gross - totalRet, orders };
+  return { sales, ret, gross, totalRet, net: gross - totalRet, orders, ordersByPlatform };
 }
 
 function calcProjection(month) {
@@ -2580,22 +2594,25 @@ function renderDailyTable() {
   }
 
   const totals = {};
+  const totalOrdersByPlatform = {};
   active.forEach((platform) => {
     totals[platform.key] = data.days.reduce((sum, day) => sum + Number(day[platform.key] || 0), 0);
+    totalOrdersByPlatform[platform.key] = data.days.reduce((sum, day) => sum + Math.max(0, Math.round(Number(day[`orders_${platform.key}`] || 0))), 0);
   });
   const grandTotal = active.reduce((sum, platform) => sum + totals[platform.key], 0);
-  const totalOrders = data.days.reduce((sum, day) => sum + Math.max(0, Math.round(Number(day.orders || 0))), 0);
+  const totalOrders = active.reduce((sum, platform) => sum + totalOrdersByPlatform[platform.key], 0);
 
-  const head = `<thead><tr><th>Data</th>${active.map((platform) => `<th><span class="chdot" style="background:${getPlatformVisualColor(platform)}"></span>${platform.icon}</th>`).join("")}<th>Pedidos</th><th>Total</th></tr></thead>`;
+  const head = `<thead><tr><th>Data</th>${active.map((platform) => `<th><span class="chdot" style="background:${getPlatformVisualColor(platform)}"></span>${platform.icon} R$</th><th><span class="chdot" style="background:${getPlatformVisualColor(platform)}"></span>${platform.icon} Ped.</th>`).join("")}<th>Total</th></tr></thead>`;
   const body = data.days.map((day, dayIndex) => {
     const rowTotal = active.reduce((sum, platform) => sum + Number(day[platform.key] || 0), 0);
-    const rowOrders = Math.max(0, Math.round(Number(day.orders || 0)));
     return `<tr><td>${day.d}</td>${active.map((platform) => {
       const value = Number(day[platform.key] || 0);
-      return `<td><span class="ceditable${value === 0 ? " czero" : ""}" contenteditable="true" data-day-index="${dayIndex}" data-platform-key="${platform.key}">${value === 0 ? "-" : value.toFixed(2)}</span></td>`;
-    }).join("")}<td><span class="ceditable${rowOrders === 0 ? " czero" : ""}" contenteditable="true" data-day-index="${dayIndex}" data-platform-key="orders">${rowOrders === 0 ? "-" : rowOrders}</span></td><td style="color:var(--muted2);font-size:11px">${rowTotal > 0 ? RS(rowTotal) : "-"}</td></tr>`;
+      const ordersKey = `orders_${platform.key}`;
+      const ordersVal = Math.max(0, Math.round(Number(day[ordersKey] || 0)));
+      return `<td><span class="ceditable${value === 0 ? " czero" : ""}" contenteditable="true" data-day-index="${dayIndex}" data-platform-key="${platform.key}">${value === 0 ? "-" : value.toFixed(2)}</span></td><td><span class="ceditable${ordersVal === 0 ? " czero" : ""}" contenteditable="true" data-day-index="${dayIndex}" data-platform-key="${ordersKey}">${ordersVal === 0 ? "-" : ordersVal}</span></td>`;
+    }).join("")}<td style="color:var(--muted2);font-size:11px">${rowTotal > 0 ? RS(rowTotal) : "-"}</td></tr>`;
   }).join("");
-  const foot = `<tfoot><tr><td>Total</td>${active.map((platform) => `<td>${RS(totals[platform.key])}</td>`).join("")}<td>${totalOrders}</td><td>${RS(grandTotal)}</td></tr></tfoot>`;
+  const foot = `<tfoot><tr><td>Total</td>${active.map((platform) => `<td>${RS(totals[platform.key])}</td><td>${totalOrdersByPlatform[platform.key]}</td>`).join("")}<td>${RS(grandTotal)}</td></tr></tfoot>`;
   document.getElementById("dailyDetailsTable").innerHTML = head + body + foot;
 }
 
@@ -2609,7 +2626,8 @@ function selectAll(el) {
 
 function updateCell(dayIndex, key, el) {
   const rawValue = parseFloat((el.textContent || "").replace(/[^0-9.,]/g, "").replace(",", ".")) || 0;
-  const value = key === "orders" ? Math.max(0, Math.round(rawValue)) : rawValue;
+  const isOrdersKey = key === "orders" || key.startsWith("orders_");
+  const value = isOrdersKey ? Math.max(0, Math.round(rawValue)) : rawValue;
   state.db[state.currentMonth].days[dayIndex][key] = value;
   state.db[state.currentMonth].days = sortDays(state.db[state.currentMonth].days);
   saveState();
@@ -2790,6 +2808,10 @@ function renderSaleInputs() {
       <label class="flabel" for="sale_${escapeAttribute(platform.key)}" style="color:${getReadablePlatformColor(platform.color)}">${escapeHtml(platform.name)}</label>
       <input type="number" class="finput" id="sale_${escapeAttribute(platform.key)}" placeholder="0,00" step="0.01" min="0">
     </div>
+    <div class="fg">
+      <label class="flabel" for="orders_${escapeAttribute(platform.key)}" style="color:${getReadablePlatformColor(platform.color)};opacity:0.75;font-size:11px">Pedidos ${escapeHtml(platform.name)}</label>
+      <input type="number" class="finput" id="orders_${escapeAttribute(platform.key)}" placeholder="0" step="1" min="0">
+    </div>
   `).join("");
 }
 
@@ -2909,12 +2931,14 @@ function addSale() {
     return;
   }
   const label = `${parts[2]}/${parts[1]}`;
-  const entry = { d: label, orders: ordersValue };
+  const entry = { d: label };
   let hasAnyValue = false;
 
   getPlatforms().forEach((platform) => {
     const value = parseFloat(document.getElementById(`sale_${platform.key}`)?.value || 0) || 0;
     entry[platform.key] = value;
+    const ordersPerPlatform = Math.max(0, Math.round(parseFloat(document.getElementById(`orders_${platform.key}`)?.value || 0) || 0));
+    entry[`orders_${platform.key}`] = ordersPerPlatform;
     if (value > 0) hasAnyValue = true;
   });
 
@@ -2927,8 +2951,9 @@ function addSale() {
   if (existingIndex >= 0) {
     getPlatforms().forEach((platform) => {
       state.db[month].days[existingIndex][platform.key] = Number(state.db[month].days[existingIndex][platform.key] || 0) + Number(entry[platform.key] || 0);
+      const ordersKey = `orders_${platform.key}`;
+      state.db[month].days[existingIndex][ordersKey] = Math.max(0, Math.round(Number(state.db[month].days[existingIndex][ordersKey] || 0) + Number(entry[ordersKey] || 0)));
     });
-    state.db[month].days[existingIndex].orders = Math.max(0, Math.round(Number(state.db[month].days[existingIndex].orders || 0) + Number(entry.orders || 0)));
   } else {
     state.db[month].days.push(normalizeDay(entry));
     state.db[month].days = sortDays(state.db[month].days);
@@ -2944,6 +2969,8 @@ function clearSale() {
   getPlatforms().forEach((platform) => {
     const el = document.getElementById(`sale_${platform.key}`);
     if (el) el.value = "";
+    const ordersEl = document.getElementById(`orders_${platform.key}`);
+    if (ordersEl) ordersEl.value = "";
   });
   const ordersInput = document.getElementById("inputOrders");
   if (ordersInput) ordersInput.value = "";
