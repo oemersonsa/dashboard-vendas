@@ -41,6 +41,21 @@ const LEGACY_PLATFORM_PRESETS = {
   kw: { name: "Kwai", icon: "KW", color: "#fb923c", iconText: "#ffffff" }
 };
 
+const LEGACY_PLATFORM_KEY_ALIASES = {
+  ml: "mercado-livre",
+  mercadolivre: "mercado-livre",
+  sh: "shopee",
+  se: "shein",
+  mg: "magalu",
+  "magazine-luiza": "magalu",
+  nu: "nuvem-shop",
+  nuvemshop: "nuvem-shop",
+  ns: "nuvem-shop",
+  tk: "tiktok",
+  "tiktok-shop": "tiktok",
+  kw: "kwai"
+};
+
 const PLATFORM_FAVICON_DOMAINS = {
   "mercado-livre": "mercadolivre.com.br",
   mercadolivre: "mercadolivre.com.br",
@@ -369,6 +384,27 @@ function slugifyText(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function canonicalizePlatformKey(value) {
+  const normalized = slugifyText(value);
+  return LEGACY_PLATFORM_KEY_ALIASES[normalized] || normalized;
+}
+
+function getPlatformKeyCandidates(platformOrKey) {
+  const rawKey = typeof platformOrKey === "string" ? platformOrKey : platformOrKey?.key;
+  const rawName = typeof platformOrKey === "string" ? "" : platformOrKey?.name;
+  const canonicalKey = canonicalizePlatformKey(rawKey || rawName);
+  const candidates = new Set([canonicalKey]);
+
+  Object.entries(LEGACY_PLATFORM_KEY_ALIASES).forEach(([alias, target]) => {
+    if (target === canonicalKey) candidates.add(alias);
+  });
+
+  const normalizedName = slugifyText(rawName);
+  if (normalizedName) candidates.add(normalizedName);
+
+  return [...candidates].filter(Boolean);
+}
+
 function normalizeMonthName(month) {
   const normalized = String(month || "")
     .normalize("NFD")
@@ -518,7 +554,7 @@ function normalizePlatform(platform = {}, index = 0) {
     ? normalizedColor
     : BRAND_COLORS[index % BRAND_COLORS.length];
   return {
-    key: String(platform.key || slugifyText(name || `plataforma-${index + 1}`)).slice(0, 20) || `plataforma-${index + 1}`,
+    key: String(canonicalizePlatformKey(platform.key || name || `plataforma-${index + 1}`)).slice(0, 20) || `plataforma-${index + 1}`,
     name: name || `Plataforma ${index + 1}`,
     color,
     icon: short || `P${index + 1}`,
@@ -545,12 +581,13 @@ function normalizeDay(day = {}, platforms = getPlatforms()) {
   };
   // legacy global orders field — distribute to first platform that has sales, if no per-platform data exists
   const legacyOrders = Math.max(0, Math.round(Number(day.orders ?? day.pedidos ?? 0)));
-  const hasAnyPerPlatformOrders = platforms.some((p) => Number(day[`orders_${p.key}`] || 0) > 0);
-  const firstActivePlatform = platforms.find((p) => Number(day[p.key] || 0) > 0) || platforms[0];
+  const hasAnyPerPlatformOrders = platforms.some((platform) => getPlatformKeyCandidates(platform).some((candidate) => Number(day[`orders_${candidate}`] || 0) > 0));
+  const firstActivePlatform = platforms.find((platform) => getPlatformKeyCandidates(platform).some((candidate) => Number(day[candidate] || 0) > 0)) || platforms[0];
   platforms.forEach((platform) => {
-    normalized[platform.key] = Number(day[platform.key] || 0);
+    const keyCandidates = getPlatformKeyCandidates(platform);
+    normalized[platform.key] = keyCandidates.reduce((sum, candidate) => sum + Number(day[candidate] || 0), 0);
     const ordersKey = `orders_${platform.key}`;
-    let ordersVal = Math.max(0, Math.round(Number(day[ordersKey] || 0)));
+    let ordersVal = keyCandidates.reduce((sum, candidate) => sum + Math.max(0, Math.round(Number(day[`orders_${candidate}`] || 0))), 0);
     // migrate legacy once
     if (!hasAnyPerPlatformOrders && legacyOrders > 0 && firstActivePlatform && platform.key === firstActivePlatform.key) {
       ordersVal = legacyOrders;
@@ -573,7 +610,7 @@ function normalizeMonthData(monthData = {}, platforms = getPlatforms()) {
   const days = Array.isArray(monthData.days) ? monthData.days.map((day) => normalizeDay(day, platforms)) : [];
   const returns = {};
   platforms.forEach((platform) => {
-    returns[platform.key] = Number((monthData.returns || {})[platform.key] || 0);
+    returns[platform.key] = getPlatformKeyCandidates(platform).reduce((sum, candidate) => sum + Number((monthData.returns || {})[candidate] || 0), 0);
   });
   return { days: sortDays(days), returns };
 }
@@ -1938,25 +1975,72 @@ function getLoggedDays(month) {
   return data.days.filter((day) => getPlatforms().some((platform) => Number(day[platform.key] || 0) > 0)).length;
 }
 
-function calcTotals(month) {
+function getDayNumber(value) {
+  const dayNumber = Number(String(value || "").split("/")[0]);
+  return Number.isFinite(dayNumber) ? dayNumber : 0;
+}
+
+function getLastLoggedDay(month) {
+  const data = state.db[month];
+  if (!data?.days?.length) return 0;
+  return data.days.reduce((maxDay, day) => {
+    const hasSales = getPlatforms().some((platform) => Number(day[platform.key] || 0) > 0);
+    if (!hasSales) return maxDay;
+    return Math.max(maxDay, getDayNumber(day.d));
+  }, 0);
+}
+
+function calcTotals(month, options = {}) {
   const data = state.db[month];
   if (!data) return null;
+  const cutoffDay = Math.max(0, Number(options.cutoffDay || 0));
+  const filteredDays = cutoffDay > 0
+    ? data.days.filter((day) => {
+      const dayNumber = getDayNumber(day.d);
+      return dayNumber > 0 && dayNumber <= cutoffDay;
+    })
+    : data.days;
   const sales = {};
   getPlatforms().forEach((platform) => {
-    sales[platform.key] = data.days.reduce((sum, day) => sum + Number(day[platform.key] || 0), 0);
+    sales[platform.key] = filteredDays.reduce((sum, day) => sum + Number(day[platform.key] || 0), 0);
   });
   const ordersByPlatform = {};
   getPlatforms().forEach((platform) => {
-    ordersByPlatform[platform.key] = data.days.reduce((sum, day) => sum + Math.max(0, Math.round(Number(day[`orders_${platform.key}`] || 0))), 0);
+    ordersByPlatform[platform.key] = filteredDays.reduce((sum, day) => sum + Math.max(0, Math.round(Number(day[`orders_${platform.key}`] || 0))), 0);
   });
   const orders = getPlatforms().reduce((sum, platform) => sum + (ordersByPlatform[platform.key] || 0), 0);
+  const fullSales = {};
+  getPlatforms().forEach((platform) => {
+    fullSales[platform.key] = data.days.reduce((sum, day) => sum + Number(day[platform.key] || 0), 0);
+  });
   const ret = {};
   getPlatforms().forEach((platform) => {
-    ret[platform.key] = Number((data.returns || {})[platform.key] || 0);
+    const totalReturns = Number((data.returns || {})[platform.key] || 0);
+    if (!cutoffDay || cutoffDay >= getMonthDays(month)) {
+      ret[platform.key] = totalReturns;
+      return;
+    }
+    const fullValue = Number(fullSales[platform.key] || 0);
+    const partialValue = Number(sales[platform.key] || 0);
+    const share = fullValue > 0 ? Math.min(partialValue / fullValue, 1) : 0;
+    ret[platform.key] = totalReturns * share;
   });
   const gross = getPlatforms().reduce((sum, platform) => sum + Number(sales[platform.key] || 0), 0);
   const totalRet = getPlatforms().reduce((sum, platform) => sum + Number(ret[platform.key] || 0), 0);
   return { sales, ret, gross, totalRet, net: gross - totalRet, orders, ordersByPlatform };
+}
+
+function getComparisonPeriod(month) {
+  const previousName = prevMonth(month);
+  const cutoffDay = getLastLoggedDay(month);
+  return {
+    previousName,
+    cutoffDay,
+    currentTotals: calcTotals(month),
+    previousTotals: previousName
+      ? calcTotals(previousName, { cutoffDay: cutoffDay || 0 })
+      : null
+  };
 }
 
 function calcProjection(month) {
@@ -2507,16 +2591,20 @@ function switchMonth(month) {
 }
 
 function renderKPIs() {
-  const totals = calcTotals(state.currentMonth);
-  const previousName = prevMonth(state.currentMonth);
-  const previousTotals = previousName ? calcTotals(previousName) : null;
+  const comparison = getComparisonPeriod(state.currentMonth);
+  const totals = comparison.currentTotals;
+  const previousName = comparison.previousName;
+  const previousTotals = comparison.previousTotals;
   const returnsPercent = getReturnRate(totals.totalRet, totals.gross);
+  const compareLabel = previousTotals
+    ? `${previousName}${comparison.cutoffDay ? ` ate dia ${comparison.cutoffDay}` : ""}`
+    : state.currentMonth;
 
   document.getElementById("kpiRow").innerHTML = `
-    <div class="kpi-card"><div class="kpi-label">Faturamento Bruto</div><div class="kpi-value">${RS(totals.gross)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.gross, previousTotals.gross)} vs ${previousName}` : state.currentMonth}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Faturamento Liquido</div><div class="kpi-value">${RS(totals.net)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.net, previousTotals.net)} vs ${previousName}` : dash}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value">${totals.orders}</div><div class="kpi-change">${previousTotals ? `${varH(totals.orders, previousTotals.orders)} vs ${previousName}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${totals.orders > 0 ? `${RS(totals.gross / totals.orders)} por pedido` : "Sem pedidos lancados"}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Devolucoes</div><div class="kpi-value">${RS(totals.totalRet)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.totalRet, previousTotals.totalRet)} vs ${previousName}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${returnsPercent.toFixed(1)}% das vendas</div><div class="returns-bar"><div class="returns-fill" style="width:${Math.min(returnsPercent, 100)}%"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">Faturamento Bruto</div><div class="kpi-value">${RS(totals.gross)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.gross, previousTotals.gross)} vs ${compareLabel}` : state.currentMonth}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Faturamento Liquido</div><div class="kpi-value">${RS(totals.net)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.net, previousTotals.net)} vs ${compareLabel}` : dash}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value">${totals.orders}</div><div class="kpi-change">${previousTotals ? `${varH(totals.orders, previousTotals.orders)} vs ${compareLabel}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${totals.orders > 0 ? `${RS(totals.gross / totals.orders)} por pedido` : "Sem pedidos lancados"}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Devolucoes</div><div class="kpi-value">${RS(totals.totalRet)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.totalRet, previousTotals.totalRet)} vs ${compareLabel}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${returnsPercent.toFixed(1)}% das vendas</div><div class="returns-bar"><div class="returns-fill" style="width:${Math.min(returnsPercent, 100)}%"></div></div></div>
     <div class="kpi-card"><div class="kpi-label">Plataformas Ativas</div><div class="kpi-value">${getPlatforms().filter((platform) => totals.sales[platform.key] > 0).length}</div><div class="kpi-change" style="color:var(--muted)">de ${getPlatforms().length} cadastradas</div></div>
   `;
 }
@@ -2690,9 +2778,13 @@ function renderDonut() {
 
 function renderWeekly() {
   const weekly = getWeekBuckets(state.currentMonth, state.db[state.currentMonth].days);
-  const previousName = prevMonth(state.currentMonth);
+  const comparison = getComparisonPeriod(state.currentMonth);
+  const previousName = comparison.previousName;
   const previousWeekly = previousName && state.db[previousName]
-    ? getWeekBuckets(previousName, state.db[previousName].days)
+    ? getWeekBuckets(previousName, state.db[previousName].days.filter((day) => {
+      const dayNumber = getDayNumber(day.d);
+      return !comparison.cutoffDay || (dayNumber > 0 && dayNumber <= comparison.cutoffDay);
+    }))
     : [];
   const total = weekly.reduce((sum, item) => sum + item.total, 0);
   const max = Math.max(...weekly.map((item) => item.total), 1);
@@ -2728,9 +2820,9 @@ function renderBestDays() {
 }
 
 function renderPlatformTable() {
-  const totals = calcTotals(state.currentMonth);
-  const previousName = prevMonth(state.currentMonth);
-  const previousTotals = previousName ? calcTotals(previousName) : null;
+  const comparison = getComparisonPeriod(state.currentMonth);
+  const totals = comparison.currentTotals;
+  const previousTotals = comparison.previousTotals;
   const active = getPlatforms().filter((platform) => totals.sales[platform.key] > 0 || totals.ret[platform.key] > 0);
   if (!active.length) {
     document.getElementById("platformTable").innerHTML = `<tbody><tr><td style="text-align:left;padding:20px;color:var(--muted)">Cadastre vendas para ver o resumo por plataforma.</td></tr></tbody>`;
@@ -2771,9 +2863,13 @@ function renderPlatformTable() {
 }
 
 function renderMonthCompare() {
-  const totals = calcTotals(state.currentMonth);
-  const previousName = prevMonth(state.currentMonth);
-  const previousTotals = previousName ? calcTotals(previousName) : null;
+  const comparison = getComparisonPeriod(state.currentMonth);
+  const totals = comparison.currentTotals;
+  const previousName = comparison.previousName;
+  const previousTotals = comparison.previousTotals;
+  const previousLabel = previousTotals && comparison.cutoffDay
+    ? `${previousName} ate dia ${comparison.cutoffDay}`
+    : previousName;
 
   let html = `<div class="compare-grid">
     <div class="compare-card compare-card-current">
@@ -2783,7 +2879,7 @@ function renderMonthCompare() {
       <div class="compare-meta compare-meta-neg">Dev: ${RS(totals.totalRet)}</div>
     </div>
     ${previousTotals ? `<div class="compare-card">
-      <div class="compare-month">${previousName}</div>
+      <div class="compare-month">${previousLabel}</div>
       <div class="compare-value">${RS(previousTotals.net)}</div>
       <div class="compare-meta">Bruto: ${RS(previousTotals.gross)}</div>
       <div class="compare-meta compare-meta-neg">Dev: ${RS(previousTotals.totalRet)}</div>
@@ -2830,8 +2926,12 @@ function renderReturnInputs() {
 function renderProjection() {
   const totals = calcTotals(state.currentMonth);
   const projection = calcProjection(state.currentMonth);
-  const previousName = prevMonth(state.currentMonth);
-  const previousTotals = previousName ? calcTotals(previousName) : null;
+  const comparison = getComparisonPeriod(state.currentMonth);
+  const previousName = comparison.previousName;
+  const previousTotals = comparison.previousTotals;
+  const compareLabel = previousTotals
+    ? `${previousName}${comparison.cutoffDay ? ` ate dia ${comparison.cutoffDay}` : ""}`
+    : "";
 
   document.getElementById("projectionGrid").innerHTML = `
     <div class="projection-card">
@@ -2849,7 +2949,7 @@ function renderProjection() {
       <div class="projection-label">Projecao de Vendas</div>
       <div class="projection-value">${RS(projection.projectedGross)}</div>
       <div class="projection-sub">Media diaria: ${RS(projection.salesDailyAverage)}</div>
-      <div class="projection-meta">${previousTotals ? `vs bruto de ${previousName}: ${varH(projection.projectedGross, previousTotals.gross)}` : "Sem mes anterior para comparar"}</div>
+      <div class="projection-meta">${previousTotals ? `vs bruto de ${compareLabel}: ${varH(projection.projectedGross, previousTotals.gross)}` : "Sem mes anterior para comparar"}</div>
     </div>
     <div class="projection-card">
       <div class="projection-label">Projecao de Devolucoes</div>
@@ -3135,9 +3235,13 @@ async function saveChangedPassword() {
 function openReport() {
   closeHeaderMenu();
   const month = state.currentMonth;
-  const totals = calcTotals(month);
-  const previousName = prevMonth(month);
-  const previousTotals = previousName ? calcTotals(previousName) : null;
+  const comparison = getComparisonPeriod(month);
+  const totals = comparison.currentTotals;
+  const previousName = comparison.previousName;
+  const previousTotals = comparison.previousTotals;
+  const previousLabel = previousTotals && comparison.cutoffDay
+    ? `${previousName} ate dia ${comparison.cutoffDay}`
+    : previousName;
   const active = getPlatforms().filter((platform) => totals.sales[platform.key] > 0 || totals.ret[platform.key] > 0);
   const maxNet = previousTotals ? Math.max(totals.net, previousTotals.net, 1) : Math.max(totals.net, 1);
 
@@ -3170,10 +3274,10 @@ function openReport() {
       <table class="rtable"><thead><tr><th>Plataforma</th><th>Bruto</th><th>Devolucoes</th><th>% Dev.</th><th>Liquido</th><th>vs. Mes Ant.</th></tr></thead><tbody>${platformRows}</tbody><tfoot><tr><td style="color:var(--accent)">Total</td><td>${R(totals.gross)}</td><td class="neg">${R(totals.totalRet)}</td><td style="color:var(--muted)">${totals.gross > 0 ? ((totals.totalRet / totals.gross) * 100).toFixed(1) : 0}%</td><td style="color:var(--accent)">${R(totals.net)}</td><td>${previousTotals ? varH(totals.net, previousTotals.net) : "-"}</td></tr></tfoot></table>
     </div>
     ${previousTotals ? `<div class="msection">
-      <div class="msec-title">Comparativo Visual - ${month} vs ${previousName}</div>
+      <div class="msec-title">Comparativo Visual - ${month} vs ${previousLabel}</div>
       <div class="cvis">
         <div class="cvis-item"><div class="cvis-month">${month}</div><div class="cvis-val" style="color:var(--accent)">${R(totals.net)}</div><div style="font-size:11px;color:var(--muted);margin-bottom:6px">Bruto: ${R(totals.gross)} · Dev: ${R(totals.totalRet)}</div><div class="cvis-bar"><div class="cvis-fill" style="width:${((totals.net / maxNet) * 100).toFixed(1)}%;background:var(--accent)"></div></div></div>
-        <div class="cvis-item"><div class="cvis-month">${previousName}</div><div class="cvis-val">${R(previousTotals.net)}</div><div style="font-size:11px;color:var(--muted);margin-bottom:6px">Bruto: ${R(previousTotals.gross)} · Dev: ${R(previousTotals.totalRet)}</div><div class="cvis-bar"><div class="cvis-fill" style="width:${((previousTotals.net / maxNet) * 100).toFixed(1)}%;background:var(--accent2)"></div></div></div>
+        <div class="cvis-item"><div class="cvis-month">${previousLabel}</div><div class="cvis-val">${R(previousTotals.net)}</div><div style="font-size:11px;color:var(--muted);margin-bottom:6px">Bruto: ${R(previousTotals.gross)} · Dev: ${R(previousTotals.totalRet)}</div><div class="cvis-bar"><div class="cvis-fill" style="width:${((previousTotals.net / maxNet) * 100).toFixed(1)}%;background:var(--accent2)"></div></div></div>
       </div>
       <div class="msec-title">Por Plataforma - barra solida = atual · transparente = anterior</div>
       ${compareRows}
@@ -3522,4 +3626,3 @@ function init() {
 }
 
 init();
-
