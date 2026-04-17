@@ -32,7 +32,7 @@
         <div class="auth-local-fields" id="authLocalFields">
           <div class="fg">
           <label class="flabel" for="authUsername">Usuario</label>
-          <input class="finput" id="authUsername" type="text" autocomplete="username" placeholder="Seu usuario">
+          <input class="finput" id="authUsername" type="text" autocomplete="username" placeholder="Seu usuário">
           </div>
           <div class="fg">
           <label class="flabel" for="authPassword">Senha</label>
@@ -81,7 +81,7 @@
           <div class="setup-list" id="platformConfigList"></div>
           <div class="actions-row">
             <button class="btn btn-secondary" id="importBackupSetupButton" type="button">Importar Backup</button>
-            <button class="btn btn-primary" id="finishSetupButton" type="button">Finalizar Configuracao</button>
+            <button class="btn btn-primary" id="finishSetupButton" type="button">Finalizar Configuração</button>
             <button class="btn btn-secondary" id="logoutFromSetupButton" type="button">Sair</button>
           </div>
         </div>
@@ -92,7 +92,7 @@
   <section class="screen hub-screen" id="hubScreen" hidden>
     <div class="hub-shell">
       <div class="hub-copy">
-        <div class="logo"><div class="logo-dot"></div>Central de Operacao</div>
+        <div class="logo"><div class="logo-dot"></div>Central de Operação</div>
         <div class="card-title" id="hubGreeting">Bem-vindo</div>
         <div class="card-sub">Escolha o que voce quer abrir agora. O menu aparece logo depois do login quando sua base ja esta configurada.</div>
         <div class="auth-status" id="hubPlatformCount">0 plataformas cadastradas</div>
@@ -101,7 +101,7 @@
         <button class="hub-card" id="openDashboardCard" type="button">
           <span class="hub-card-kicker">Acompanhar resultados</span>
           <strong>Dashboard</strong>
-          <span>Veja vendas, semanas, comparativos e relatorios do periodo.</span>
+          <span>Veja vendas, semanas, comparativos e relatórios do período.</span>
         </button>
         <button class="hub-card" id="openCalculatorCard" type="button">
           <span class="hub-card-kicker">Definir preco ideal</span>
@@ -159,7 +159,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Vendas Diarias por Plataforma</div>
-              <div class="card-sub">Grafico consolidado do mes. Use os detalhes para editar dia a dia.</div>
+              <div class="card-sub">Gráfico consolidado do mês. Use os detalhes para editar dia a dia.</div>
             </div>
             <button class="btn btn-secondary" id="openDailyDetailsButton" type="button">Ver detalhes</button>
           </div>
@@ -169,7 +169,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Mix de Plataformas</div>
-              <div class="card-sub">% do faturamento liquido</div>
+              <div class="card-sub">% do faturamento líquido</div>
             </div>
           </div>
           <div class="donut-box"><canvas id="donutChart"></canvas></div>
@@ -181,7 +181,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Resumo por Plataforma</div>
-              <div class="card-sub">Vendas, devolucoes e liquido</div>
+              <div class="card-sub">Vendas, devoluções e líquido</div>
             </div>
           </div>
           <table class="ptable platform-summary-table" id="platformTable"></table>
@@ -190,7 +190,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Comparativo Mes a Mes</div>
-              <div class="card-sub">vs. mes anterior</div>
+              <div class="card-sub">vs. mês anterior</div>
             </div>
           </div>
           <div id="monthCompare"></div>
@@ -201,7 +201,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Vendas por Semana</div>
-              <div class="card-sub">% do total mensal e variacao vs. mes anterior</div>
+              <div class="card-sub">% do total mensal e variação vs. mês anterior</div>
             </div>
           </div>
           <div class="wgrid" id="weekBars"></div>
@@ -251,7 +251,7 @@
               <select class="finput" id="returnMonth"></select>
             </div>
           </div>
-          <div class="sec-label small-label">Total de devolucoes por plataforma no mes (R$)</div>
+          <div class="sec-label small-label">Total de devoluções por plataforma no mês (R$)</div>
           <div class="pigrid" id="returnInputs"></div>
           <div class="actions-row">
             <button class="btn btn-primary" id="saveReturnsButton" type="button">Salvar Devolucoes</button>
@@ -263,7 +263,7 @@
         <div class="card-header">
           <div>
             <div class="card-title">Projecao do Mes</div>
-            <div class="card-sub">Estimativa baseada na media dos dias ja lancados</div>
+            <div class="card-sub">Estimativa baseada na média dos dias já lançados</div>
           </div>
         </div>
         <div class="projection-grid" id="projectionGrid"></div>
@@ -352,7 +352,7 @@
     <div class="mheader">
       <div>
         <div class="mtitle">Adicionar Mes</div>
-        <div class="card-sub modal-subtitle">Selecione para criar um novo periodo</div>
+        <div class="card-sub modal-subtitle">Selecione para criar um novo período</div>
       </div>
       <button class="mclose" data-close-modal="addMonthModal" type="button">X</button>
     </div>
@@ -377,11 +377,11 @@
     <div class="modal-stack">
       <button class="mode-card active" id="importModeMergeButton" data-import-mode="merge" type="button">
         <span class="mode-card-title">Mesclar</span>
-        <span class="mode-card-sub">Mantem o que ja existe e adiciona dados do backup.</span>
+        <span class="mode-card-sub">Mantém o que já existe e adiciona dados do backup.</span>
       </button>
       <button class="mode-card" id="importModeReplaceButton" data-import-mode="replace" type="button">
         <span class="mode-card-title">Substituir</span>
-        <span class="mode-card-sub">Usa o backup como base principal e troca meses, plataformas e lancamentos.</span>
+        <span class="mode-card-sub">Usa o backup como base principal e troca meses, plataformas e lançamentos.</span>
       </button>
     </div>
     <div class="actions-row">
@@ -427,12 +427,12 @@
     <div class="mheader">
       <div>
         <div class="mtitle">Excluir Mes</div>
-        <div class="card-sub modal-subtitle" id="deleteMonthSubtitle">Confirme a exclusao do mes atual.</div>
+        <div class="card-sub modal-subtitle" id="deleteMonthSubtitle">Confirme a exclusão do mês atual.</div>
       </div>
       <button class="mclose" data-close-modal="deleteMonthModal" type="button">X</button>
     </div>
     <div class="empty-state delete-month-warning">
-      Essa acao remove todas as vendas e devolucoes do mes selecionado.
+      Essa ação remove todas as vendas e devoluções do mês selecionado.
     </div>
     <div class="actions-row">
       <button class="btn btn-primary btn-danger" id="confirmDeleteMonthButton" type="button">Excluir Mes</button>

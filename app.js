@@ -117,7 +117,7 @@ const MARKETPLACE_PRICING_PRESETS = {
     fixedFee: 0,
     extraShippingCost: 0,
     sourceType: "estimated",
-    note: "Estimativa inicial. Confirme a taxa praticada no painel da sua operacao."
+    note: "Estimativa inicial. Confirme a taxa praticada no painel da sua operação."
   },
   magalu: {
     label: "Magalu",
@@ -153,7 +153,7 @@ const MARKETPLACE_PRICING_PRESETS = {
     fixedFee: 0,
     extraShippingCost: 0,
     sourceType: "estimated",
-    note: "Estimativa editavel. Confirme no painel da sua operacao antes de usar em massa."
+    note: "Estimativa editável. Confirme no painel da sua operação antes de usar em massa."
   }
 };
 
@@ -354,7 +354,7 @@ function normalizePricingProfile(platform, profile = {}) {
     fixedFee: Number(profile.fixedFee ?? preset.fixedFee ?? 0),
     extraShippingCost: Number(profile.extraShippingCost ?? preset.extraShippingCost ?? 0),
     sourceType: String(profile.sourceType || preset.sourceType || "custom"),
-    note: String(profile.note || preset.note || "Personalize com os custos reais da sua operacao.")
+    note: String(profile.note || preset.note || "Personalize com os custos reais da sua operação.")
   };
 }
 
@@ -730,7 +730,7 @@ function loadStoredAuth() {
     const parsed = normalizeState(JSON.parse(raw));
     return parsed.auth?.username ? parsed.auth : null;
   } catch (error) {
-    console.error("Falha ao verificar usuario salvo:", error);
+    console.error("Falha ao verificar usuário salvo:", error);
     return null;
   }
 }
@@ -1164,7 +1164,7 @@ function renderGoogleUi() {
 
   if (googleHint) {
     if (backendDriveReady && driveAvailable && !googleDriveBackendStatus.connected) {
-      googleHint.textContent = "Use Sincronizar Google Drive para conectar sua conta uma vez. Depois a renovacao fica no backend.";
+      googleHint.textContent = "Use Sincronizar Google Drive para conectar sua conta uma vez. Depois a renovação fica no backend.";
     } else if (backendDriveReady && driveAvailable) {
       googleHint.textContent = "Backup do Google Drive conectado via backend. As proximas sincronizacoes podem rodar sem popup.";
     } else if (googleDriveBackendStatus.available && !googleDriveBackendStatus.configured) {
@@ -1345,7 +1345,7 @@ async function finalizeGoogleLogin({ isFirstAccess = false } = {}) {
 async function handleGoogleCredentialResponse(credentialResponse) {
   const googleProfile = buildGoogleProfile(credentialResponse);
   if (!googleProfile) {
-    toast("Nao foi possivel validar o login com Google");
+    toast("Não foi possível validar o login com Google");
     return;
   }
 
@@ -1360,7 +1360,7 @@ async function handleGoogleCredentialResponse(credentialResponse) {
         })
       });
     } catch (error) {
-      toast("Nao foi possivel autenticar sua conta Google no backend");
+      toast("Não foi possível autenticar sua conta Google no backend");
       return;
     }
     state.auth = normalizeAuth(googleProfile);
@@ -1371,7 +1371,7 @@ async function handleGoogleCredentialResponse(credentialResponse) {
   }
 
   if (!isGoogleAuth()) {
-    toast("Este dashboard ainda usa acesso local. Entre com usuario e senha para continuar.");
+    toast("Este dashboard ainda usa acesso local. Entre com usuário e senha para continuar.");
     return;
   }
 
@@ -1394,7 +1394,7 @@ async function handleGoogleCredentialResponse(credentialResponse) {
       })
     });
   } catch (error) {
-    toast("Nao foi possivel autenticar sua conta Google no backend");
+    toast("Não foi possível autenticar sua conta Google no backend");
     return;
   }
 
@@ -1729,17 +1729,17 @@ async function syncGoogleDriveNow({ silent = false, showSuccessToast = !silent, 
     if (!silent) {
       const message = String(error?.message || "");
       if (message.includes("popup_closed")) {
-        toast("A autorizacao do Google Drive foi fechada antes de concluir");
+        toast("A autorização do Google Drive foi fechada antes de concluir");
       } else if (message.includes("popup_failed_to_open")) {
-        toast("O navegador bloqueou a janela de autorizacao do Google Drive");
+        toast("O navegador bloqueou a janela de autorização do Google Drive");
       } else if (message.includes("google_drive_not_connected")) {
-        toast("Conecte sua conta Google Drive para concluir a sincronizacao");
+        toast("Conecte sua conta Google Drive para concluir a sincronização");
       } else if (message.includes("google_drive_backend_not_configured")) {
         toast("O backend do Google Drive ainda nao foi configurado");
       } else if (message.includes("access_denied")) {
         toast("O acesso ao Google Drive foi negado");
       } else {
-        toast("Nao foi possivel sincronizar com Google Drive");
+        toast("Não foi possível sincronizar com Google Drive");
       }
     }
     return false;
@@ -1821,9 +1821,9 @@ async function restoreFromGoogleDrive({ silent = false, preferredMode = "merge",
     if (!silent) {
       const message = String(error?.message || "");
       if (message.includes("popup_closed")) {
-        toast("A autorizacao do Google Drive foi fechada antes de concluir");
+        toast("A autorização do Google Drive foi fechada antes de concluir");
       } else if (message.includes("popup_failed_to_open")) {
-        toast("O navegador bloqueou a janela de autorizacao do Google Drive");
+        toast("O navegador bloqueou a janela de autorização do Google Drive");
       } else if (message.includes("google_drive_not_connected")) {
         toast("Conecte sua conta Google Drive para restaurar o backup");
       } else if (message.includes("google_drive_file_not_found")) {
@@ -1833,7 +1833,7 @@ async function restoreFromGoogleDrive({ silent = false, preferredMode = "merge",
       } else if (message.includes("access_denied")) {
         toast("O acesso ao Google Drive foi negado");
       } else {
-        toast("Nao foi possivel restaurar do Google Drive");
+        toast("Não foi possível restaurar do Google Drive");
       }
     }
     return false;
@@ -2216,7 +2216,7 @@ function renderAuthScreen() {
   if (!usesGoogleAuth && authMode === "create") {
     usernameInput.readOnly = false;
     usernameInput.value = "";
-    usernameInput.placeholder = "Seu usuario";
+    usernameInput.placeholder = "Seu usuário";
   } else if (!usesGoogleAuth) {
     usernameInput.readOnly = true;
     usernameInput.value = state.auth.username;
@@ -2224,7 +2224,7 @@ function renderAuthScreen() {
   } else {
     usernameInput.readOnly = true;
     usernameInput.value = "";
-    usernameInput.placeholder = "Seu usuario";
+    usernameInput.placeholder = "Seu usuário";
   }
   passwordInput.value = "";
   renderGoogleSignInButton();
@@ -2238,7 +2238,7 @@ async function handleAuthSubmit() {
   const username = document.getElementById("authUsername").value.trim();
   const password = document.getElementById("authPassword").value;
   if (!username || !password) {
-    toast("Preencha usuario e senha");
+    toast("Preencha usuário e senha");
     return;
   }
 
@@ -2262,7 +2262,7 @@ async function handleAuthSubmit() {
       await refreshGoogleDriveBackendStatus();
       renderScreen();
     } catch (error) {
-      toast(error?.message === "user_already_exists" ? "Esse usuario ja existe" : "Nao foi possivel criar o acesso");
+      toast(error?.message === "user_already_exists" ? "Esse usuário já existe" : "Não foi possível criar o acesso");
     }
     return;
   }
@@ -2603,7 +2603,7 @@ function renderKPIs() {
   document.getElementById("kpiRow").innerHTML = `
     <div class="kpi-card"><div class="kpi-label">Faturamento Bruto</div><div class="kpi-value">${RS(totals.gross)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.gross, previousTotals.gross)} vs ${compareLabel}` : state.currentMonth}</div></div>
     <div class="kpi-card"><div class="kpi-label">Faturamento Liquido</div><div class="kpi-value">${RS(totals.net)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.net, previousTotals.net)} vs ${compareLabel}` : dash}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value">${totals.orders}</div><div class="kpi-change">${previousTotals ? `${varH(totals.orders, previousTotals.orders)} vs ${compareLabel}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${totals.orders > 0 ? `${RS(totals.gross / totals.orders)} por pedido` : "Sem pedidos lancados"}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value">${totals.orders}</div><div class="kpi-change">${previousTotals ? `${varH(totals.orders, previousTotals.orders)} vs ${compareLabel}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${totals.orders > 0 ? `${RS(totals.gross / totals.orders)} por pedido` : "Sem pedidos lançados"}</div></div>
     <div class="kpi-card"><div class="kpi-label">Devolucoes</div><div class="kpi-value">${RS(totals.totalRet)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.totalRet, previousTotals.totalRet)} vs ${compareLabel}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${returnsPercent.toFixed(1)}% das vendas</div><div class="returns-bar"><div class="returns-fill" style="width:${Math.min(returnsPercent, 100)}%"></div></div></div>
     <div class="kpi-card"><div class="kpi-label">Plataformas Ativas</div><div class="kpi-value">${getPlatforms().filter((platform) => totals.sales[platform.key] > 0).length}</div><div class="kpi-change" style="color:var(--muted)">de ${getPlatforms().length} cadastradas</div></div>
   `;
@@ -2677,7 +2677,7 @@ function renderDailyTable() {
   const data = state.db[state.currentMonth];
   const active = getPlatforms().filter((platform) => data.days.some((day) => Number(day[platform.key] || 0) > 0));
   if (!data.days.length || !active.length) {
-    document.getElementById("dailyDetailsTable").innerHTML = `<tbody><tr><td style="text-align:left;padding:20px;color:var(--muted)">Nenhuma venda registrada neste mes.</td></tr></tbody>`;
+    document.getElementById("dailyDetailsTable").innerHTML = `<tbody><tr><td style="text-align:left;padding:20px;color:var(--muted)">Nenhuma venda registrada neste mês.</td></tr></tbody>`;
     return;
   }
 
@@ -2883,11 +2883,11 @@ function renderMonthCompare() {
       <div class="compare-value">${RS(previousTotals.net)}</div>
       <div class="compare-meta">Bruto: ${RS(previousTotals.gross)}</div>
       <div class="compare-meta compare-meta-neg">Dev: ${RS(previousTotals.totalRet)}</div>
-    </div>` : `<div class="compare-card compare-card-empty"><span>Sem mes anterior</span></div>`}
+    </div>` : `<div class="compare-card compare-card-empty"><span>Sem mês anterior</span></div>`}
   </div>`;
 
   if (previousTotals) {
-    html += `<div class="compare-section-title">Variacao por plataforma</div>`;
+    html += `<div class="compare-section-title">Variação por plataforma</div>`;
     getPlatforms().filter((platform) => totals.sales[platform.key] > 0 || previousTotals.sales[platform.key] > 0).forEach((platform) => {
       const currentNet = Math.max(0, totals.sales[platform.key] - totals.ret[platform.key]);
       const previousNet = Math.max(0, previousTotals.sales[platform.key] - previousTotals.ret[platform.key]);
@@ -2937,7 +2937,7 @@ function renderProjection() {
     <div class="projection-card">
       <div class="projection-label">Dias Lancados</div>
       <div class="projection-value">${projection.loggedDays}/${projection.monthDays}</div>
-      <div class="projection-sub">Base usada para a media do mes</div>
+      <div class="projection-sub">Base usada para a média do mês</div>
     </div>
     <div class="projection-card">
       <div class="projection-label">Projecao de Pedidos</div>
@@ -2949,7 +2949,7 @@ function renderProjection() {
       <div class="projection-label">Projecao de Vendas</div>
       <div class="projection-value">${RS(projection.projectedGross)}</div>
       <div class="projection-sub">Media diaria: ${RS(projection.salesDailyAverage)}</div>
-      <div class="projection-meta">${previousTotals ? `vs bruto de ${compareLabel}: ${varH(projection.projectedGross, previousTotals.gross)}` : "Sem mes anterior para comparar"}</div>
+      <div class="projection-meta">${previousTotals ? `vs bruto de ${compareLabel}: ${varH(projection.projectedGross, previousTotals.gross)}` : "Sem mês anterior para comparar"}</div>
     </div>
     <div class="projection-card">
       <div class="projection-label">Projecao de Devolucoes</div>
@@ -2960,7 +2960,7 @@ function renderProjection() {
     <div class="projection-card">
       <div class="projection-label">Projecao Liquida</div>
       <div class="projection-value" style="color:var(--accent)">${RS(projection.projectedNet)}</div>
-      <div class="projection-sub">Taxa atual de devolucao: ${projection.currentReturnRate.toFixed(1)}%</div>
+      <div class="projection-sub">Taxa atual de devolução: ${projection.currentReturnRate.toFixed(1)}%</div>
       <div class="projection-meta">Realizado ate agora: ${RS(totals.net)}</div>
     </div>
   `;
@@ -2973,8 +2973,8 @@ function renderCommission() {
     <div class="commission-shell">
       <div class="commission-copy">
         <div class="commission-label">Minha Comissao</div>
-        <div class="commission-title">1% do faturamento liquido</div>
-        <div class="commission-sub">Calculado sobre o faturamento liquido realizado do mes atual.</div>
+        <div class="commission-title">1% do faturamento líquido</div>
+        <div class="commission-sub">Calculado sobre o faturamento líquido realizado do mês atual.</div>
       </div>
       <div class="commission-value-wrap">
         <div class="commission-value">${R(commission)}</div>
@@ -3027,7 +3027,7 @@ function addSale() {
   }
   if (Number(parts[1]) !== selectedMonthIndex + 1) {
     document.getElementById("inputDate").value = getSuggestedInputDate(month);
-    toast("A data foi ajustada para o mes selecionado");
+    toast("A data foi ajustada para o mês selecionado");
     return;
   }
   const label = `${parts[2]}/${parts[1]}`;
@@ -3103,11 +3103,11 @@ function openAddMonth() {
 function openDeleteMonthModal() {
   const months = Object.keys(state.db);
   if (months.length <= 1) {
-    toast("Mantenha ao menos um mes no dashboard");
+    toast("Mantenha ao menos um mês no dashboard");
     return;
   }
   pendingDeleteMonth = state.currentMonth;
-  document.getElementById("deleteMonthSubtitle").textContent = `Confirme a exclusao de ${pendingDeleteMonth}.`;
+  document.getElementById("deleteMonthSubtitle").textContent = `Confirme a exclusão de ${pendingDeleteMonth}.`;
   closeModal("addMonthModal");
   document.getElementById("deleteMonthModal").classList.add("open");
 }
@@ -3120,7 +3120,7 @@ function pickMonth(month, button) {
 
 function confirmAddMonth() {
   if (!newMonthSel) {
-    toast("Selecione um mes");
+    toast("Selecione um mês");
     return;
   }
   ensureMonthData(newMonthSel);
@@ -3193,7 +3193,7 @@ async function saveChangedPassword() {
   const confirmPassword = document.getElementById("confirmPasswordInput").value;
 
   if (!state.auth?.username) {
-    toast("Nenhum usuario encontrado");
+    toast("Nenhum usuário encontrado");
     return;
   }
   if (!currentPassword || !newPassword || !confirmPassword) {
@@ -3205,7 +3205,7 @@ async function saveChangedPassword() {
     return;
   }
   if (newPassword !== confirmPassword) {
-    toast("A confirmacao da senha nao confere");
+    toast("A confirmação da senha não confere");
     return;
   }
 
@@ -3228,7 +3228,7 @@ async function saveChangedPassword() {
   } catch (error) {
     toast(error?.message === "invalid_current_password"
       ? "Senha atual incorreta"
-      : "Nao foi possivel atualizar a senha");
+      : "Não foi possível atualizar a senha");
   }
 }
 
@@ -3260,12 +3260,12 @@ function openReport() {
     const previousNet = Math.max(0, (previousTotals.sales[platform.key] || 0) - (previousTotals.ret[platform.key] || 0));
     const maxValue = Math.max(currentNet, previousNet, 1);
     return `<div class="pcrow"><div class="pcname">${platformBadge(platform, true)}</div><div class="pcbars"><div class="pcbar-cur" style="width:${((currentNet / maxValue) * 100).toFixed(0)}%;background:${platform.color}"></div><div class="pcbar-prev" style="width:${((previousNet / maxValue) * 100).toFixed(0)}%;background:${platform.color}"></div></div><div class="pcvals"><div class="pcval-cur">${RS(currentNet)}</div><div class="pcval-var">${varH(currentNet, previousNet)}</div></div></div>`;
-  }).join("") : '<div style="color:var(--muted);font-size:12px;padding:10px 0">Sem mes anterior.</div>';
+  }).join("") : '<div style="color:var(--muted);font-size:12px;padding:10px 0">Sem mês anterior.</div>';
 
   document.getElementById("reportContent").innerHTML = `
     <div class="rkpis">
       <div class="rkpi"><div class="rkpi-label">Faturamento Bruto</div><div class="rkpi-val">${R(totals.gross)}</div><div class="rkpi-sub">${previousTotals ? varH(totals.gross, previousTotals.gross) : ""}</div></div>
-      <div class="rkpi"><div class="rkpi-label">Pedidos</div><div class="rkpi-val">${totals.orders}</div><div class="rkpi-sub">${totals.orders > 0 ? `${RS(totals.gross / totals.orders)} por pedido` : "Sem pedidos lancados"}</div></div>
+      <div class="rkpi"><div class="rkpi-label">Pedidos</div><div class="rkpi-val">${totals.orders}</div><div class="rkpi-sub">${totals.orders > 0 ? `${RS(totals.gross / totals.orders)} por pedido` : "Sem pedidos lançados"}</div></div>
       <div class="rkpi"><div class="rkpi-label">Devolucoes</div><div class="rkpi-val neg">${R(totals.totalRet)}</div><div class="rkpi-sub" style="color:var(--muted)">${totals.gross > 0 ? ((totals.totalRet / totals.gross) * 100).toFixed(1) : 0}% do bruto</div></div>
       <div class="rkpi" style="border:1px solid rgba(232,255,71,.25)"><div class="rkpi-label">Faturamento Liquido</div><div class="rkpi-val" style="color:var(--accent)">${R(totals.net)}</div><div class="rkpi-sub">${previousTotals ? varH(totals.net, previousTotals.net) : ""}</div></div>
     </div>
@@ -3279,7 +3279,7 @@ function openReport() {
         <div class="cvis-item"><div class="cvis-month">${month}</div><div class="cvis-val" style="color:var(--accent)">${R(totals.net)}</div><div style="font-size:11px;color:var(--muted);margin-bottom:6px">Bruto: ${R(totals.gross)} · Dev: ${R(totals.totalRet)}</div><div class="cvis-bar"><div class="cvis-fill" style="width:${((totals.net / maxNet) * 100).toFixed(1)}%;background:var(--accent)"></div></div></div>
         <div class="cvis-item"><div class="cvis-month">${previousLabel}</div><div class="cvis-val">${R(previousTotals.net)}</div><div style="font-size:11px;color:var(--muted);margin-bottom:6px">Bruto: ${R(previousTotals.gross)} · Dev: ${R(previousTotals.totalRet)}</div><div class="cvis-bar"><div class="cvis-fill" style="width:${((previousTotals.net / maxNet) * 100).toFixed(1)}%;background:var(--accent2)"></div></div></div>
       </div>
-      <div class="msec-title">Por Plataforma - barra solida = atual · transparente = anterior</div>
+      <div class="msec-title">Por Plataforma - barra sólida = atual · transparente = anterior</div>
       ${compareRows}
     </div>` : ""}`;
 
@@ -3293,7 +3293,7 @@ async function exportReportPNG() {
   const reportModal = document.querySelector("#reportModal .modal");
 
   if (!reportModal || !window.html2canvas) {
-    toast("Nao foi possivel exportar o relatorio");
+    toast("Não foi possível exportar o relatório");
     return;
   }
 
@@ -3330,7 +3330,7 @@ async function exportReportPNG() {
     toast("PNG exportado com sucesso");
   } catch (error) {
     console.error(error);
-    toast("Nao foi possivel exportar o PNG");
+    toast("Não foi possível exportar o PNG");
   } finally {
     exportRoot.remove();
     button.disabled = false;
@@ -3439,7 +3439,7 @@ async function importBackupFile(file, mode = pendingImportMode) {
     toast(mode === "replace" ? "Backup importado e substituido com sucesso" : "Backup importado com sucesso");
   } catch (error) {
     console.error("Falha ao importar backup:", error);
-    toast("Nao foi possivel importar o backup");
+    toast("Não foi possível importar o backup");
   }
 }
 
