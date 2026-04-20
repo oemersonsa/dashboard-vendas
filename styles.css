@@ -211,7 +211,7 @@ main{padding:24px 36px;display:grid;gap:18px;}
 .mode-card-title{font-weight:800;font-size:14px;}
 .mode-card-sub{font-size:12px;color:var(--muted);}
 .delete-month-warning{margin-bottom:18px;text-align:left;}
-.rmodal{max-width:820px;}
+.rmodal{max-width:1220px;}
 .rkpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:22px;}
 .rkpi,.cvis-item{background:var(--surface2);border-radius:11px;padding:16px;}
 .rkpi{text-align:center;}

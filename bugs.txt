@@ -1,7 +1,0 @@
-correções:
-
-diminuir os cards de cima pra caber tudo em uma só linha , fazer o  mesmo nos cards de pprojeção 
-
-no lançamento de dados em vez de englobar todos os pedidos do dia, separar pra poder enviar o número de pedidos por plataforma 
-
-ao exportar o relatório não aparecem os ícones dos marketplaces 
