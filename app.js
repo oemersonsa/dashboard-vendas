@@ -893,6 +893,14 @@ function getMonthIndexByName(month) {
   return ALL_MONTHS.findIndex((item) => item === month);
 }
 
+function resolveActiveMonth(preferredMonth = "") {
+  const activeTabMonth = document.querySelector(".month-tab.active")?.dataset.month || "";
+  const selectedInputMonth = document.getElementById("inputMonth")?.value || "";
+  const fallbackMonth = preferredMonth || activeTabMonth || selectedInputMonth || state.currentMonth;
+  const normalizedMonth = normalizeMonthName(fallbackMonth);
+  return state.db[normalizedMonth] ? normalizedMonth : state.currentMonth;
+}
+
 function toInputDateValue(year, monthIndex, day) {
   const date = new Date(year, monthIndex, day);
   const safeYear = date.getFullYear();
@@ -2621,7 +2629,7 @@ function switchMonth(month) {
   const returnMonth = document.getElementById("returnMonth");
   if (returnMonth) returnMonth.value = nextMonth;
   syncSaleDateWithMonth(true);
-  renderAll(nextMonth);
+  renderAll(resolveActiveMonth(nextMonth));
   saveState({ skipGoogleSync: true });
 }
 
@@ -2955,6 +2963,7 @@ function renderReturnInputs() {
 }
 
 function renderProjection(month = state.currentMonth) {
+  month = resolveActiveMonth(month);
   const totals = calcTotals(month);
   const projection = calcProjection(month);
   const comparison = getComparisonPeriod(month);
@@ -2998,6 +3007,7 @@ function renderProjection(month = state.currentMonth) {
 }
 
 function renderCommission(month = state.currentMonth) {
+  month = resolveActiveMonth(month);
   const totals = calcTotals(month);
   const commission = totals.net * 0.01;
   document.getElementById("commissionCard").innerHTML = `
@@ -3016,6 +3026,7 @@ function renderCommission(month = state.currentMonth) {
 }
 
 function renderAll(month = state.currentMonth) {
+  month = resolveActiveMonth(month);
   if (!getPlatforms().length || !state.db[month]) return;
   renderKPIs(month);
   renderDailyChart(month);
