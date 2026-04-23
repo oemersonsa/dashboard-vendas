@@ -2127,12 +2127,8 @@ function getPlatformFaviconUrl(platform) {
 
 function platformIcon(platform) {
   const faviconUrl = getPlatformFaviconUrl(platform);
-  const iconText = escapeHtml(String(platform?.icon || (platform?.name || "").slice(0, 2) || "?").slice(0, 2).toUpperCase());
-  const iconBg = escapeAttribute(platform?.color || "#111827");
-  const iconColor = escapeAttribute(platform?.iconText || "#ffffff");
-  const fallback = `<span class="platform-icon-fallback" aria-hidden="true" style="background:${iconBg};color:${iconColor}">${iconText}</span>`;
-  if (!faviconUrl) return `<span class="platform-icon platform-icon-static">${fallback}</span>`;
-  return `<span class="platform-icon">${fallback}<img class="platform-favicon" src="${escapeAttribute(faviconUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'"></span>`;
+  if (!faviconUrl) return "";
+  return `<span class="platform-icon"><img class="platform-favicon" src="${escapeAttribute(faviconUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'"></span>`;
 }
 
 function platformBadge(platform, shortName = false) {
@@ -2612,31 +2608,27 @@ function renderDashboardShell() {
 }
 
 function switchMonth(month) {
-  const nextMonth = normalizeMonthName(month);
-  ensureMonthData(nextMonth);
-  state.currentMonth = nextMonth;
+  state.currentMonth = month;
+  saveState();
   renderTabs();
   const inputMonth = document.getElementById("inputMonth");
-  if (inputMonth) inputMonth.value = nextMonth;
-  const returnMonth = document.getElementById("returnMonth");
-  if (returnMonth) returnMonth.value = nextMonth;
+  if (inputMonth) inputMonth.value = month;
   syncSaleDateWithMonth(true);
-  renderAll(nextMonth);
-  saveState({ skipGoogleSync: true });
+  renderAll();
 }
 
-function renderKPIs(month = state.currentMonth) {
-  const comparison = getComparisonPeriod(month);
+function renderKPIs() {
+  const comparison = getComparisonPeriod(state.currentMonth);
   const totals = comparison.currentTotals;
   const previousName = comparison.previousName;
   const previousTotals = comparison.previousTotals;
   const returnsPercent = getReturnRate(totals.totalRet, totals.gross);
   const compareLabel = previousTotals
     ? `${previousName}${comparison.cutoffDay ? ` ate dia ${comparison.cutoffDay}` : ""}`
-    : month;
+    : state.currentMonth;
 
   document.getElementById("kpiRow").innerHTML = `
-    <div class="kpi-card"><div class="kpi-label">Faturamento Bruto</div><div class="kpi-value">${RS(totals.gross)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.gross, previousTotals.gross)} vs ${compareLabel}` : month}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Faturamento Bruto</div><div class="kpi-value">${RS(totals.gross)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.gross, previousTotals.gross)} vs ${compareLabel}` : state.currentMonth}</div></div>
     <div class="kpi-card"><div class="kpi-label">Faturamento Liquido</div><div class="kpi-value">${RS(totals.net)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.net, previousTotals.net)} vs ${compareLabel}` : dash}</div></div>
     <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value">${totals.orders}</div><div class="kpi-change">${previousTotals ? `${varH(totals.orders, previousTotals.orders)} vs ${compareLabel}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${totals.orders > 0 ? `${RS(totals.gross / totals.orders)} por pedido` : "Sem pedidos lançados"}</div></div>
     <div class="kpi-card"><div class="kpi-label">Devolucoes</div><div class="kpi-value">${RS(totals.totalRet)}</div><div class="kpi-change">${previousTotals ? `${varH(totals.totalRet, previousTotals.totalRet)} vs ${compareLabel}` : dash}</div><div class="kpi-change" style="color:var(--muted)">${returnsPercent.toFixed(1)}% das vendas</div><div class="returns-bar"><div class="returns-fill" style="width:${Math.min(returnsPercent, 100)}%"></div></div></div>
@@ -2644,8 +2636,8 @@ function renderKPIs(month = state.currentMonth) {
   `;
 }
 
-function renderDailyChart(month = state.currentMonth) {
-  const data = state.db[month];
+function renderDailyChart() {
+  const data = state.db[state.currentMonth];
   const active = getPlatforms().filter((platform) => data.days.some((day) => Number(day[platform.key] || 0) > 0));
   const ctx = document.getElementById("dailyChart").getContext("2d");
   if (dailyChart) dailyChart.destroy();
@@ -2708,8 +2700,8 @@ function renderDailyChart(month = state.currentMonth) {
   });
 }
 
-function renderDailyTable(month = state.currentMonth) {
-  const data = state.db[month];
+function renderDailyTable() {
+  const data = state.db[state.currentMonth];
   const active = getPlatforms().filter((platform) => data.days.some((day) => Number(day[platform.key] || 0) > 0));
   if (!data.days.length || !active.length) {
     document.getElementById("dailyDetailsTable").innerHTML = `<tbody><tr><td style="text-align:left;padding:20px;color:var(--muted)">Nenhuma venda registrada neste mês.</td></tr></tbody>`;
@@ -2758,8 +2750,8 @@ function updateCell(dayIndex, key, el) {
   toast("Valor atualizado");
 }
 
-function renderDonut(month = state.currentMonth) {
-  const totals = calcTotals(month);
+function renderDonut() {
+  const totals = calcTotals(state.currentMonth);
   const active = getPlatforms().filter((platform) => totals.sales[platform.key] > 0);
   const netValues = active.map((platform) => Math.max(0, Number(totals.sales[platform.key] || 0) - Number(totals.ret[platform.key] || 0)));
   const total = netValues.reduce((sum, value) => sum + value, 0);
@@ -2811,9 +2803,9 @@ function renderDonut(month = state.currentMonth) {
   }).join("");
 }
 
-function renderWeekly(month = state.currentMonth) {
-  const weekly = getWeekBuckets(month, state.db[month].days);
-  const comparison = getComparisonPeriod(month);
+function renderWeekly() {
+  const weekly = getWeekBuckets(state.currentMonth, state.db[state.currentMonth].days);
+  const comparison = getComparisonPeriod(state.currentMonth);
   const previousName = comparison.previousName;
   const total = weekly.reduce((sum, item) => sum + item.total, 0);
   const max = Math.max(...weekly.map((item) => item.total), 1);
@@ -2833,8 +2825,8 @@ function renderWeekly(month = state.currentMonth) {
   }).join("");
 }
 
-function renderBestDays(month = state.currentMonth) {
-  const data = state.db[month];
+function renderBestDays() {
+  const data = state.db[state.currentMonth];
   const best = {};
   data.days.forEach((day) => {
     getPlatforms().forEach((platform) => {
@@ -2850,8 +2842,8 @@ function renderBestDays(month = state.currentMonth) {
   document.getElementById("bestDayGrid").innerHTML = html || `<div class="empty-state">Ainda nao ha dias destacados.</div>`;
 }
 
-function renderPlatformTable(month = state.currentMonth) {
-  const comparison = getComparisonPeriod(month);
+function renderPlatformTable() {
+  const comparison = getComparisonPeriod(state.currentMonth);
   const totals = comparison.currentTotals;
   const previousTotals = comparison.previousTotals;
   const active = getPlatforms().filter((platform) => totals.sales[platform.key] > 0 || totals.ret[platform.key] > 0);
@@ -2893,8 +2885,8 @@ function renderPlatformTable(month = state.currentMonth) {
   `;
 }
 
-function renderMonthCompare(month = state.currentMonth) {
-  const comparison = getComparisonPeriod(month);
+function renderMonthCompare() {
+  const comparison = getComparisonPeriod(state.currentMonth);
   const totals = comparison.currentTotals;
   const previousName = comparison.previousName;
   const previousTotals = comparison.previousTotals;
@@ -2904,7 +2896,7 @@ function renderMonthCompare(month = state.currentMonth) {
 
   let html = `<div class="compare-grid">
     <div class="compare-card compare-card-current">
-      <div class="compare-month">${month}</div>
+      <div class="compare-month">${state.currentMonth}</div>
       <div class="compare-value compare-value-current">${RS(totals.net)}</div>
       <div class="compare-meta">Bruto: ${RS(totals.gross)}</div>
       <div class="compare-meta compare-meta-neg">Dev: ${RS(totals.totalRet)}</div>
@@ -2954,10 +2946,10 @@ function renderReturnInputs() {
   `).join("");
 }
 
-function renderProjection(month = state.currentMonth) {
-  const totals = calcTotals(month);
-  const projection = calcProjection(month);
-  const comparison = getComparisonPeriod(month);
+function renderProjection() {
+  const totals = calcTotals(state.currentMonth);
+  const projection = calcProjection(state.currentMonth);
+  const comparison = getComparisonPeriod(state.currentMonth);
   const previousName = comparison.previousName;
   const previousTotals = comparison.previousTotals;
   const compareLabel = previousTotals
@@ -2997,8 +2989,8 @@ function renderProjection(month = state.currentMonth) {
   `;
 }
 
-function renderCommission(month = state.currentMonth) {
-  const totals = calcTotals(month);
+function renderCommission() {
+  const totals = calcTotals(state.currentMonth);
   const commission = totals.net * 0.01;
   document.getElementById("commissionCard").innerHTML = `
     <div class="commission-shell">
@@ -3015,18 +3007,18 @@ function renderCommission(month = state.currentMonth) {
   `;
 }
 
-function renderAll(month = state.currentMonth) {
-  if (!getPlatforms().length || !state.db[month]) return;
-  renderKPIs(month);
-  renderDailyChart(month);
-  renderDailyTable(month);
-  renderDonut(month);
-  renderWeekly(month);
-  renderBestDays(month);
-  renderPlatformTable(month);
-  renderMonthCompare(month);
-  renderProjection(month);
-  renderCommission(month);
+function renderAll() {
+  if (!getPlatforms().length || !state.db[state.currentMonth]) return;
+  renderKPIs();
+  renderDailyChart();
+  renderDailyTable();
+  renderDonut();
+  renderWeekly();
+  renderBestDays();
+  renderPlatformTable();
+  renderMonthCompare();
+  renderProjection();
+  renderCommission();
 }
 
 function switchTab(name) {

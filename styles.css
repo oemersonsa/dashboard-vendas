@@ -233,15 +233,13 @@ main{padding:24px 36px;display:grid;gap:18px;}
 .pcbar-prev{opacity:.35;}
 .pcvals{width:120px;text-align:right;font-size:12px;}
 .platform-icon{width:28px;height:28px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;overflow:hidden;background:rgba(255,255,255,.96);border:1px solid rgba(15,23,42,.08);box-shadow:0 1px 2px rgba(15,23,42,.08);}
-.platform-icon-fallback{width:100%;height:100%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;line-height:1;letter-spacing:.03em;text-transform:uppercase;}
-.platform-favicon{position:absolute;inset:0;margin:auto;width:18px;height:18px;object-fit:contain;display:block;}
+.platform-favicon{width:18px;height:18px;object-fit:contain;display:block;}
 .platform-badge{display:inline-flex;align-items:center;gap:10px;}
 .platform-summary-table{table-layout:auto;font-size:13px;}
 .platform-summary-table th,.platform-summary-table td{padding:9px 8px;}
 .platform-summary-table th:first-child,.platform-summary-table td:first-child{width:22%;}
 .platform-summary-table .platform-badge{gap:7px;}
 .platform-summary-table .platform-icon{width:24px;height:24px;border-radius:7px;}
-.platform-summary-table .platform-icon-fallback{font-size:8px;}
 .platform-summary-table .platform-favicon{width:15px;height:15px;}
 .platform-summary-table .ppill{padding:2px 7px;font-size:11px;}
 .compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
