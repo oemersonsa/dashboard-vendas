@@ -1963,6 +1963,8 @@ function getWeekBuckets(monthName, days) {
 
   return ranges.map((bucket, index) => ({
     index,
+    startDay: bucket.startDay,
+    endDay: bucket.endDay,
     total: bucket.total,
     label: bucket.startDay === bucket.endDay ? `${bucket.startDay}` : `${bucket.startDay}-${bucket.endDay}`,
     shortLabel: `${index + 1}a sem.`
@@ -1988,6 +1990,18 @@ function getLastLoggedDay(month) {
     if (!hasSales) return maxDay;
     return Math.max(maxDay, getDayNumber(day.d));
   }, 0);
+}
+
+function isCurrentCalendarMonth(month) {
+  return getMonthIndexByName(month) === new Date().getMonth();
+}
+
+function getComparisonCutoffDay(month) {
+  const lastLoggedDay = getLastLoggedDay(month);
+  if (!lastLoggedDay) return 0;
+  const monthDays = getMonthDays(month);
+  if (!isCurrentCalendarMonth(month) || lastLoggedDay >= monthDays) return 0;
+  return lastLoggedDay;
 }
 
 function calcTotals(month, options = {}) {
@@ -2032,7 +2046,7 @@ function calcTotals(month, options = {}) {
 
 function getComparisonPeriod(month) {
   const previousName = prevMonth(month);
-  const cutoffDay = getLastLoggedDay(month);
+  const cutoffDay = getComparisonCutoffDay(month);
   return {
     previousName,
     cutoffDay,
@@ -2041,6 +2055,19 @@ function getComparisonPeriod(month) {
       ? calcTotals(previousName, { cutoffDay: cutoffDay || 0 })
       : null
   };
+}
+
+function getWeekRangeTotal(monthName, startDay, endDay, options = {}) {
+  const data = state.db[monthName];
+  if (!data?.days?.length) return 0;
+  const cutoffDay = Math.max(0, Number(options.cutoffDay || 0));
+  return data.days.reduce((sum, day) => {
+    const dayNumber = getDayNumber(day.d);
+    if (!dayNumber || dayNumber < startDay || dayNumber > endDay) return sum;
+    if (cutoffDay && dayNumber > cutoffDay) return sum;
+    const dayTotal = getPlatforms().reduce((daySum, platform) => daySum + Number(day[platform.key] || 0), 0);
+    return sum + dayTotal;
+  }, 0);
 }
 
 function calcProjection(month) {
@@ -2780,12 +2807,6 @@ function renderWeekly() {
   const weekly = getWeekBuckets(state.currentMonth, state.db[state.currentMonth].days);
   const comparison = getComparisonPeriod(state.currentMonth);
   const previousName = comparison.previousName;
-  const previousWeekly = previousName && state.db[previousName]
-    ? getWeekBuckets(previousName, state.db[previousName].days.filter((day) => {
-      const dayNumber = getDayNumber(day.d);
-      return !comparison.cutoffDay || (dayNumber > 0 && dayNumber <= comparison.cutoffDay);
-    }))
-    : [];
   const total = weekly.reduce((sum, item) => sum + item.total, 0);
   const max = Math.max(...weekly.map((item) => item.total), 1);
   const colors = ["#e8ff47", "#47d4ff", "#a78bfa", "#34d399", "#fb923c", "#f472b6"];
@@ -2795,7 +2816,9 @@ function renderWeekly() {
   weekBars.innerHTML = weekly.map((item, index) => {
     const value = item.total;
     const percent = total > 0 ? (value / total) * 100 : 0;
-    const previousValue = previousWeekly[index]?.total || 0;
+    const previousValue = previousName
+      ? getWeekRangeTotal(previousName, item.startDay, item.endDay, { cutoffDay: comparison.cutoffDay })
+      : 0;
     const comparison = previousName ? varH(value, previousValue) : "";
     const color = colors[index % colors.length];
     return `<div class="wbwrap"><div class="wblabel">${item.shortLabel}</div><div class="wbpct">${escapeHtml(item.label)}</div><div class="wbcon"><div class="wbar" style="height:${value > 0 ? Math.max(7, (value / max) * 100) : 0}%;background:${color};opacity:${value > 0 ? 1 : .15}"></div></div><div class="wbval" style="color:${color}">${value > 0 ? RS(value) : "-"}</div><div class="wbpct">${value > 0 ? `${percent.toFixed(1)}%` : ""}</div><div class="wbdelta">${comparison || dash}</div></div>`;
