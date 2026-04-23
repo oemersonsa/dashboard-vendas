@@ -835,6 +835,7 @@ async function handleGoogleDriveConnect(req, res, url, authenticatedUser) {
 
   const state = crypto.randomBytes(24).toString("hex");
   pendingOAuthStates.set(state, { username, createdAt: Date.now() });
+  const existingConnection = getUserConnection(username);
 
   const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   authUrl.searchParams.set("client_id", GOOGLE_CLIENT_ID);
@@ -842,7 +843,9 @@ async function handleGoogleDriveConnect(req, res, url, authenticatedUser) {
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", GOOGLE_DRIVE_SCOPE);
   authUrl.searchParams.set("access_type", "offline");
-  authUrl.searchParams.set("prompt", "consent");
+  if (!existingConnection?.refreshToken) {
+    authUrl.searchParams.set("prompt", "consent");
+  }
   authUrl.searchParams.set("include_granted_scopes", "true");
   authUrl.searchParams.set("state", state);
 
